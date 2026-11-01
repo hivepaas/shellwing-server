@@ -1,0 +1,31 @@
+package notificationuc
+
+import (
+	"context"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/usecase/settings"
+	"github.com/hivepaas/shellwing-server/usecase/settings/notificationuc/notificationdto"
+)
+
+func (uc *UC) GetNotification(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *notificationdto.GetNotificationReq,
+) (*notificationdto.GetNotificationResp, error) {
+	req.Type = currentSettingType
+	resp, err := uc.GetSetting(ctx, uc.DB, auth, &req.GetSettingReq, &settings.GetSettingData{})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	respData, err := notificationdto.TransformNotification(resp.Data, resp.RefObjects)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &notificationdto.GetNotificationResp{
+		Data: respData,
+	}, nil
+}

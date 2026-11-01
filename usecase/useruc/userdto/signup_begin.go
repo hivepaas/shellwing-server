@@ -1,0 +1,44 @@
+package userdto
+
+import (
+	"time"
+
+	vld "github.com/tiendc/go-validator"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/hperrors"
+)
+
+type BeginUserSignupReq struct {
+	InviteToken string `json:"inviteToken"`
+}
+
+func NewBeginUserSignupReq() *BeginUserSignupReq {
+	return &BeginUserSignupReq{}
+}
+
+func (req *BeginUserSignupReq) Validate() hperrors.ValidationErrors {
+	validators := make([]vld.Validator, 0, 10) //nolint:mnd
+	validators = append(validators, basedto.ValidateStr(&req.InviteToken, true,
+		1, inviteTokenMaxLen, "inviteToken")...)
+	return hperrors.NewValidationErrors(vld.Validate(validators...))
+}
+
+type BeginUserSignupResp struct {
+	Meta *basedto.Meta            `json:"meta"`
+	Data *BeginUserSignupDataResp `json:"data"`
+}
+
+type BeginUserSignupDataResp struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	// FullName is the name the account was invited or signed up with, to prefill the form that finishes it.
+	FullName       string                  `json:"fullName"`
+	Role           base.UserRole           `json:"role"`
+	SecurityOption base.UserSecurityOption `json:"securityOption"`
+	AccessExpireAt *time.Time              `json:"accessExpireAt"`
+
+	MFATotpSecret string             `json:"mfaTotpSecret,omitempty"`
+	QRCode        *MFATotpQRCodeResp `json:"qrCode,omitempty"`
+}

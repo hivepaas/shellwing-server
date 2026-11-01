@@ -1,0 +1,25 @@
+# Messages for the errors declared in hperrors/errors_infra.go.
+# Adding or removing an error there means editing this file.
+
+# File errors
+ERR_FILE_SCOPE_UNSUPPORTED = "File scope '{{.Scope}}' is not supported"
+ERR_ARCHIVE_FORMAT_UNSUPPORTED = "Archive format '{{.Format}}' is not supported"
+
+# Infra errors
+ERR_INFRA = "{{.Error}}"
+ERR_INFRA_UNKNOWN = "{{.Error}}"
+ERR_INFRA_INTERNAL = "{{.Error}}"
+ERR_INFRA_INVALID_ARGUMENT = "{{.Error}}"
+ERR_INFRA_NOT_FOUND = "{{.Error}}"
+ERR_INFRA_ALREADY_EXISTS = "{{.Error}}"
+ERR_INFRA_PERMISSION_DENIED = "{{.Error}}"
+ERR_INFRA_RESOURCE_EXHAUSTED = "{{.Error}}"
+ERR_INFRA_FAILED_PRECONDITION = "{{.Error}}"
+ERR_INFRA_CONFLICT = "{{.Error}}"
+ERR_INFRA_NOT_MODIFIED = "{{.Error}}"
+ERR_INFRA_ABORTED = "{{.Error}}"
+ERR_INFRA_OUT_OF_RANGE = "{{.Error}}"
+ERR_INFRA_NOT_IMPLEMENTED = "{{.Error}}"
+ERR_INFRA_UNAVAILABLE = "{{.Error}}"
+ERR_INFRA_DATA_LOSS = "{{.Error}}"
+ERR_INFRA_UNAUTHORIZED = "{{.Error}}"

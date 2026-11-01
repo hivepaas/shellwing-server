@@ -1,0 +1,42 @@
+package sessiondto
+
+import (
+	"time"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/copier"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+)
+
+type UserResp struct {
+	ID             string                  `json:"id"`
+	Username       string                  `json:"username"`
+	Email          string                  `json:"email"`
+	Role           base.UserRole           `json:"role"`
+	Status         base.UserStatus         `json:"status"`
+	FullName       string                  `json:"fullName"`
+	Position       string                  `json:"position"`
+	Photo          string                  `json:"photo"`
+	Notes          string                  `json:"notes,omitempty"`
+	SecurityOption base.UserSecurityOption `json:"securityOption"`
+	MfaSecret      string                  `json:"mfaSecret"`
+	CreatedAt      time.Time               `json:"createdAt"`
+	UpdatedAt      time.Time               `json:"updatedAt"`
+	AccessExpireAt *timeutil.Date          `json:"accessExpireAt" copy:",nilonzero"`
+}
+
+func TransformUser(user *entity.User) (resp *UserResp, err error) {
+	if err = copier.Copy(&resp, &user); err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if user.TotpSecret != "" {
+		// The same value as every other masked secret. Nothing posts it back - the
+		// TOTP secret is only ever set through the dedicated setup flow - but a
+		// literal here is how the placeholder ended up in several lengths before.
+		resp.MfaSecret = basedto.MaskedSecret
+	}
+	return resp, nil
+}

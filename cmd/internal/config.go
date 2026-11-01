@@ -1,0 +1,138 @@
+package internal
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/signal"
+	"runtime"
+	"strings"
+	"syscall"
+
+	"go.uber.org/fx"
+
+	"github.com/hivepaas/shellwing-server/config"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/logging"
+	"github.com/hivepaas/shellwing-server/pkg/safego"
+)
+
+var (
+	ErrInvalidConfig = errors.New("invalid config")
+)
+
+// appSecretMinLen is the shortest app secret accepted outside development. A
+// generated one is 64 hex characters; this only rules out obviously trivial
+// values someone typed by hand.
+const appSecretMinLen = 12
+
+// jwtSecretMinLen is the shortest JWT signing secret accepted outside development.
+// Tokens are signed with HS256, so anyone holding a single captured token can brute
+// force a short secret offline, at their own pace, with no request to us to notice.
+// 32 characters puts that out of reach; the sessions themselves are not what makes
+// this safe, since a forged token still has to match a live session in Redis.
+const jwtSecretMinLen = 32
+
+func InitConfig(lc fx.Lifecycle, cfg *config.Config, logger logging.Logger) {
+	lc.Append(fx.Hook{
+		OnStart: func(_ context.Context) error {
+			if err := validateConfig(cfg, logger); err != nil {
+				return hperrors.Wrap(err)
+			}
+			exportDevEnvVars(cfg)
+			if err := createSystemDataDirs(cfg, logger); err != nil {
+				return hperrors.Wrap(err)
+			}
+
+			// Register the channel to receive SIGHUP signal
+			sigs := make(chan os.Signal, 1)
+			signal.Notify(sigs, syscall.SIGHUP)
+
+			// Start a goroutine to handle incoming signals
+			safego.GoWithLogger(logger, "signalHandler", func() {
+				for {
+					sig := <-sigs // Block until a signal is received
+					switch sig {
+					case syscall.SIGHUP:
+						reloadConfigOnSignal(logger)
+					default:
+						// Do nothing
+					}
+				}
+			})
+			return nil
+		},
+	})
+}
+
+// reloadConfigOnSignal reloads the config on SIGHUP. Panics are isolated per
+// signal so a bad config file cannot kill the signal handler or the process.
+func reloadConfigOnSignal(logger logging.Logger) {
+	defer safego.RecoverWithLogger(logger, "signalHandler.reloadConfig")
+
+	logger.Info("SIGHUP received: Reloading configuration...")
+	if _, err := config.ReloadConfig(); err != nil {
+		logger.Errorf("Failed to load configuration: %s", err)
+		return
+	}
+	logger.Info("SIGHUP handling: Configuration reloaded.")
+}
+
+func validateConfig(cfg *config.Config, logger logging.Logger) error {
+	logger.Info("validating app config...")
+	isProdEnv := !cfg.IsDevEnv()
+
+	// JWT secret must not be empty or short enough to brute force offline
+	if isProdEnv && len(cfg.Session.JWTSecret) < jwtSecretMinLen {
+		return fmt.Errorf("%w: JWT secret must be at least %d characters for production",
+			ErrInvalidConfig, jwtSecretMinLen)
+	}
+
+	// App secret is mandatory: everything stored as a secret is encrypted with it,
+	// and config.ensureAppSecret already refuses to start without one outside dev.
+	if isProdEnv && len(cfg.Secret) < appSecretMinLen {
+		return fmt.Errorf("%w: app secret must be at least %d characters for production",
+			ErrInvalidConfig, appSecretMinLen)
+	}
+
+	// Basic auth password must not be a trivial value (it can be empty)
+	if isProdEnv && cfg.Session.BasicAuthPassword != "" && len(cfg.Session.BasicAuthPassword) < 10 {
+		return fmt.Errorf("%w: basic auth password is invalid for production", ErrInvalidConfig)
+	}
+
+	return nil
+}
+
+func exportDevEnvVars(cfg *config.Config) {
+	if !cfg.IsLocalEnv() {
+		return
+	}
+
+	// Add extra paths if running on Mac OS in order to make some commands work
+	if runtime.GOOS == "darwin" {
+		path := os.Getenv("PATH")
+		extraPaths := []string{"/opt/homebrew/bin", "/usr/local/bin"}
+
+		for _, p := range extraPaths {
+			if !strings.Contains(path, p) {
+				path = p + string(os.PathListSeparator) + path
+			}
+		}
+
+		_ = os.Setenv("PATH", path)
+	}
+}
+
+func createSystemDataDirs(cfg *config.Config, logger logging.Logger) error {
+	logger.Info("creating data dirs if not exists...")
+
+	for path, mode := range cfg.DataPathsToInitAtStartup() {
+		err := os.MkdirAll(path, mode)
+		if err != nil {
+			logger.Errorf("failed to create data dir %s: %v", path, err)
+			return hperrors.Wrap(err)
+		}
+	}
+	return nil
+}

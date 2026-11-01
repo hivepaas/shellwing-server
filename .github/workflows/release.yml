@@ -1,0 +1,129 @@
+name: 'Release'
+
+# A release tag (v1.2.3) builds the server's image - the server, and the web
+# app (web/) of the same commit - scans it, and pushes it to GHCR, private, as
+# ghcr.io/hivepaas/shellwing-server:1.2.3, for amd64. Nothing is deployed: the
+# run's summary gives the digest to deploy it by (docs/deploying.md). The
+# `release` environment's reviewer approves each release.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/hivepaas/shellwing-server
+
+jobs:
+  check:
+    name: Check the tag
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.x'
+
+      - name: Version
+        id: meta
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: go test -count=1 ./...
+
+  build:
+    name: Build the image
+    needs: check
+    environment: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Built first into the runner's Docker, to be scanned before anything is
+      # pushed; the push after builds it again from the builder's cache.
+      - name: Build for the scan
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          build-args: |
+            VERSION=${{ needs.check.outputs.version }}
+            REVISION=${{ github.sha }}
+          tags: release-scan:amd64
+
+      # A HIGH or CRITICAL flaw with a fix - in the Alpine packages, or in the
+      # Go and the modules of a binary the image holds - stops the release.
+      # One reviewed and accepted goes in .trivyignore.
+      - name: Scan the image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.75.0'
+          scan-type: 'image'
+          image-ref: release-scan:amd64
+          scanners: 'vuln'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'
+          format: 'table'
+          trivyignores: '.trivyignore'
+
+      # The version's tag never moves once pushed, and there is no `latest`:
+      # the server is deployed by digest.
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            VERSION=${{ needs.check.outputs.version }}
+            REVISION=${{ github.sha }}
+          tags: ${{ env.IMAGE }}:${{ needs.check.outputs.version }}
+
+      - name: The digest
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          {
+            echo '### Image'
+            echo '```'
+            echo "$IMAGE:$VERSION@$DIGEST"
+            echo '```'
+            echo 'Back up the database, then deploy this digest (docs/deploying.md).'
+          } >> "$GITHUB_STEP_SUMMARY"

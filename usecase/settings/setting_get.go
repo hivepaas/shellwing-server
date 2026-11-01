@@ -1,0 +1,106 @@
+package settings
+
+import (
+	"context"
+
+	vld "github.com/tiendc/go-validator"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+)
+
+type GetSettingReq struct {
+	BaseSettingReq
+	ID            string `json:"-" mapstructure:"-"`
+	RevealSecrets bool   `json:"-" mapstructure:"revealSecrets"`
+}
+
+func (req *GetSettingReq) Validate() (validators []vld.Validator) {
+	validators = append(validators, basedto.ValidateID(&req.ID, true, "id")...)
+	return
+}
+
+type GetSettingResp struct {
+	Data            *entity.Setting
+	RefObjects      *entity.RefObjects
+	SecretsRevealed bool
+}
+
+type GetSettingData struct {
+	BaseSettingData
+
+	SkipLoadingRefObjects bool
+	ExtraLoadOpts         []bunex.SelectQueryOption
+
+	AfterLoading func(context.Context, database.IDB, *GetSettingData) error
+}
+
+func (uc *BaseUC) GetSetting(
+	ctx context.Context,
+	db database.IDB,
+	auth *basedto.Auth,
+	req *GetSettingReq,
+	data *GetSettingData,
+) (_ *GetSettingResp, err error) {
+	if err = uc.ScopeService.LoadObjectScopeData(ctx, db, req.Scope); err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	if data.AfterLoading != nil {
+		if err = data.AfterLoading(ctx, db, data); err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+	}
+
+	setting, err := uc.loadSettingByID(ctx, db, &req.BaseSettingReq, req.ID,
+		false, data.ExtraLoadOpts...)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if setting != nil {
+		setting.CurrentObjectID = req.Scope.ScopeObjectID()
+	}
+
+	secretsRevealed := false
+	if req.RevealSecrets {
+		secretsRevealed, err = uc.revealSecrets(ctx, db, auth, req.Scope, req.RevealSecrets, setting)
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+	}
+
+	var refObjects *entity.RefObjects
+	if !data.SkipLoadingRefObjects {
+		err = uc.SettingService.LoadRefObjectsSkipMissing(ctx, db, &refObjects, req.Scope, false, setting)
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+	}
+
+	return &GetSettingResp{
+		Data:            setting,
+		RefObjects:      refObjects,
+		SecretsRevealed: secretsRevealed,
+	}, nil
+}
+
+func (uc *BaseUC) GetSettingByID(
+	ctx context.Context,
+	db database.IDB,
+	req *BaseSettingReq,
+	id string,
+	requireActive bool,
+	extraLoadOpts ...bunex.SelectQueryOption,
+) (*entity.Setting, error) {
+	setting, err := uc.loadSettingByID(ctx, db, req, id, requireActive, extraLoadOpts...)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if setting != nil {
+		setting.CurrentObjectID = req.Scope.ScopeObjectID()
+	}
+	return setting, nil
+}

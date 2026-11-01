@@ -1,0 +1,32 @@
+package notificationuc
+
+import (
+	"context"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/usecase/settings"
+	"github.com/hivepaas/shellwing-server/usecase/settings/notificationuc/notificationdto"
+)
+
+func (uc *UC) ListNotification(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *notificationdto.ListNotificationReq,
+) (*notificationdto.ListNotificationResp, error) {
+	req.Type = currentSettingType
+	resp, err := uc.ListSetting(ctx, auth, &req.ListSettingReq, &settings.ListSettingData{})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	respData, err := notificationdto.TransformNotifications(resp.Data, resp.RefObjects)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &notificationdto.ListNotificationResp{
+		Meta: resp.Meta,
+		Data: respData,
+	}, nil
+}

@@ -1,0 +1,135 @@
+package sessionuc
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"github.com/markbates/goth"
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/strutil"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/usecase/sessionuc/sessiondto"
+)
+
+const (
+	externalAvatarURLMaxLen = 2000
+)
+
+func (uc *UC) CreateOAuthSession(
+	ctx context.Context,
+	req *sessiondto.CreateOAuthSessionReq,
+) (*sessiondto.CreateOAuthSessionResp, error) {
+	oauthUser := req.User
+	setting, oauth, err := uc.loadSSOSetting(ctx, oauthUser.Provider)
+	if err != nil {
+		return nil, err
+	}
+	email, err := uc.verifiedOAuthEmail(ctx, base.OAuthKind(setting.Kind), oauth, oauthUser)
+	if err != nil {
+		if errors.Is(err, hperrors.ErrOAuthEmailNotVerified) {
+			if e := uc.recordUnverifiedOAuthEmail(ctx, oauthUser.Email); e != nil {
+				return nil, e
+			}
+		}
+		return nil, err
+	}
+
+	dbUser, err := uc.userRepo.GetByEmail(ctx, uc.db, email)
+	if err != nil {
+		if errors.Is(err, hperrors.ErrNotFound) {
+			return uc.answerUnknownOAuthUser(ctx, oauthUser, email, err)
+		}
+		return nil, hperrors.Wrap(err)
+	}
+
+	// Make synchronization as info of user may be changed in the IdP system
+	updateCols := make(map[string]struct{})
+	if strings.HasPrefix(dbUser.Photo, "http") && len(oauthUser.AvatarURL) < externalAvatarURLMaxLen {
+		dbUser.Photo = oauthUser.AvatarURL
+		dbUser.UpdatedAt = timeutil.NowUTC()
+		updateCols["photo"] = struct{}{}
+		updateCols["updated_at"] = struct{}{}
+	}
+	if dbUser.Status == base.UserStatusPending && dbUser.LastAccess.IsZero() {
+		dbUser.Status = base.UserStatusActive
+		dbUser.UpdatedAt = timeutil.NowUTC()
+		dbUser.LastAccess = dbUser.UpdatedAt
+		updateCols["status"] = struct{}{}
+		updateCols["updated_at"] = struct{}{}
+		updateCols["last_access"] = struct{}{}
+	}
+	// Saves the user
+	err = uc.userRepo.Update(ctx, uc.db, dbUser, bunex.UpdateColumns(gofn.MapKeys(updateCols)...))
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	// The provider stands for the password: a user with an authenticator app owes the passcode all the same. One
+	// who may not sign in is refused before it is asked for, as after a password.
+	passcodeRequired, err := uc.passcodeRequired(ctx, dbUser, req.TrustedDeviceID)
+	if err != nil {
+		return nil, err
+	}
+	if passcodeRequired {
+		if err = signInRefusal(dbUser); err != nil {
+			if e := uc.recordLoginDenied(ctx, dbUser, auditMethodOAuth, loginRefusalReason(err)); e != nil {
+				return nil, e
+			}
+			return nil, err
+		}
+		mfaToken, err := uc.startPasscodeStep(ctx, dbUser, req.TrustedDeviceID)
+		if err != nil {
+			return nil, err
+		}
+		return &sessiondto.CreateOAuthSessionResp{MFAToken: mfaToken}, nil
+	}
+
+	sessionResp, err := uc.createSession(ctx, &sessiondto.BaseCreateSessionReq{
+		User:   dbUser,
+		Method: auditMethodOAuth,
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &sessiondto.CreateOAuthSessionResp{
+		BaseCreateSessionResp: *sessionResp,
+	}, nil
+}
+
+// recordUnverifiedOAuthEmail records a sign-in refused for an email the provider does not vouch for against the user
+// who has it, if one does: somebody may have typed that user's address into a profile to sign in as them.
+func (uc *UC) recordUnverifiedOAuthEmail(ctx context.Context, email string) error {
+	var user *entity.User
+	if email = strutil.NormalizeEmail(email); email != "" {
+		found, err := uc.userRepo.GetByEmail(ctx, uc.db, email)
+		if err != nil && !errors.Is(err, hperrors.ErrNotFound) {
+			return hperrors.Wrap(err)
+		}
+		user = found
+	}
+	return uc.recordLoginDenied(ctx, user, auditMethodOAuth, auditReasonEmailNotVerified)
+}
+
+// answerUnknownOAuthUser answers a sign-in whose email no user has: the account a provider's sign-in offers, where
+// people may make their own, and a refusal otherwise.
+func (uc *UC) answerUnknownOAuthUser(ctx context.Context, oauthUser *goth.User, email string, cause error) (
+	*sessiondto.CreateOAuthSessionResp, error) {
+	signupToken, err := uc.ssoSignupOffer(oauthUser, email)
+	if err != nil {
+		return nil, err
+	}
+	if signupToken != "" {
+		return &sessiondto.CreateOAuthSessionResp{SignupToken: signupToken}, nil
+	}
+	if err = uc.recordLoginDenied(ctx, nil, auditMethodOAuth, auditReasonUnknownUser); err != nil {
+		return nil, err
+	}
+	return nil, hperrors.Wrap(hperrors.ErrOAuthUserNotFound).WithCause(cause)
+}

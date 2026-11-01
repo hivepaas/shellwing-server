@@ -1,0 +1,73 @@
+version: 2
+updates:
+  # 1. Go Modules
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+    groups:
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # 2. GitHub Actions Workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # 3. The web app (web/yarn.lock). Minor and patch updates come together; a
+  # major update has a pull request of its own. web.yml checks each.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "web"
+    ignore:
+      # znv 0.5 imports Node's tty, which a browser build cannot bundle: the
+      # build fails. The app reads its env with 0.4 meanwhile.
+      - dependency-name: "znv"
+        versions: [">=0.5.0"]
+    groups:
+      web-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # 4. Docker Base Images (Tools)
+  - package-ecosystem: "docker"
+    directory: "/tools/docker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"

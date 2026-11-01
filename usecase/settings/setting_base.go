@@ -1,0 +1,212 @@
+package settings
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/permission"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/copier"
+	"github.com/hivepaas/shellwing-server/pkg/entityutil"
+	"github.com/hivepaas/shellwing-server/pkg/strutil"
+)
+
+type BaseSettingReq struct {
+	Type  base.SettingType    `json:"-" mapstructure:"-"`
+	Kind  string              `json:"-" mapstructure:"-"`
+	Scope *entity.ObjectScope `json:"-" mapstructure:"-"`
+
+	// Auth is who is asking, carried this far only so the write can be recorded.
+	//
+	// It is set by each concrete usecase next to Type, and the generic flows
+	// refuse to run without it - see recordSettingAudit. That refusal is the
+	// point: the alternative is a usecase that quietly writes unattributed
+	// entries because somebody added a setting type and missed one line, which is
+	// exactly the kind of gap an audit trail is useless with.
+	Auth *basedto.Auth `json:"-" mapstructure:"-"`
+}
+
+type BaseSettingResp struct {
+	ID          string             `json:"id"`
+	Type        base.SettingType   `json:"type"`
+	Name        string             `json:"name"`
+	Kind        string             `json:"kind"`
+	Status      base.SettingStatus `json:"status"`
+	Size        int64              `json:"size,omitempty"`
+	Inherited   bool               `json:"inherited,omitempty"`
+	Inheritable bool               `json:"inheritable"`
+	Default     bool               `json:"default,omitempty"`
+	UpdateVer   int                `json:"updateVer"`
+
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+	ExpireAt  *time.Time `json:"expireAt,omitempty" copy:",nilonzero"`
+}
+
+type BaseSettingData struct {
+}
+
+func (uc *BaseUC) loadSettingByID(
+	ctx context.Context,
+	db database.IDB,
+	req *BaseSettingReq,
+	id string,
+	requireActive bool,
+	opts ...bunex.SelectQueryOption,
+) (setting *entity.Setting, err error) {
+	if req.Kind != "" {
+		opts = append(opts, bunex.SelectWhere("setting.kind = ?", req.Kind))
+	}
+	setting, err = uc.SettingRepo.GetByID(ctx, db, req.Scope, req.Type, id, requireActive, opts...)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return setting, nil
+}
+
+func (uc *BaseUC) checkNameConflict(
+	ctx context.Context,
+	db database.IDB,
+	req *BaseSettingReq,
+	name string,
+) (err error) {
+	if name == "" {
+		return nil
+	}
+	setting, err := uc.SettingRepo.GetByName(ctx, db, req.Scope, req.Type, name, false,
+		bunex.SelectColumns("id", "name"),
+	)
+	if err != nil && !errors.Is(err, hperrors.ErrNotFound) {
+		return hperrors.Wrap(err)
+	}
+	if setting != nil {
+		return hperrors.NewAlreadyExist(strutil.ToPascalCase(string(req.Type))).
+			WithMsgLog("%s '%s' already exists", req.Type, setting.Name)
+	}
+	return nil
+}
+
+func (uc *BaseUC) checkRefObjectsExistence(
+	ctx context.Context,
+	db database.IDB,
+	req *BaseSettingReq,
+	refIDs *entity.RefObjectIDs,
+	requireActive bool,
+) (err error) {
+	if refIDs == nil {
+		return nil
+	}
+	err = uc.checkRefSettingsExistence(ctx, db, req, refIDs.RefSettingIDs, requireActive)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	err = uc.checkRefUsersExistence(ctx, db, refIDs.RefUserIDs, requireActive)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (uc *BaseUC) checkRefSettingsExistence(
+	ctx context.Context,
+	db database.IDB,
+	req *BaseSettingReq,
+	refSettingIDs []string,
+	requireActive bool,
+) (err error) {
+	if len(refSettingIDs) == 0 {
+		return nil
+	}
+	settings, _, err := uc.SettingRepo.List(ctx, db, req.Scope, nil,
+		bunex.SelectWhere("setting.id IN (?)", bunex.List(refSettingIDs)),
+		bunex.SelectWhereIf(requireActive, "setting.status = ?", base.SettingStatusActive),
+	)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	for _, refSettingID := range refSettingIDs {
+		found := entityutil.FindByID(settings, refSettingID)
+		if found == nil {
+			return hperrors.Wrap(hperrors.ErrSettingNotFound).WithParam("Name", refSettingID)
+		}
+	}
+	return nil
+}
+
+func (uc *BaseUC) checkRefUsersExistence(
+	ctx context.Context,
+	db database.IDB,
+	refUserIDs []string,
+	requireActive bool,
+) (err error) {
+	if len(refUserIDs) == 0 {
+		return nil
+	}
+	_, err = uc.UserService.LoadUsers(ctx, db, refUserIDs, requireActive)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (uc *BaseUC) ensureSettingDefaultUniqueness(
+	ctx context.Context,
+	db database.IDB,
+	req *BaseSettingReq,
+	setting *entity.Setting,
+) error {
+	err := uc.SettingRepo.UpdateClearDefaultFlag(ctx, db, req.Scope, req.Type, &setting.Kind, setting.ID,
+		bunex.UpdateWithDeleted(),
+	)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (uc *BaseUC) CheckAccessOnSetting(
+	ctx context.Context,
+	db database.IDB,
+	auth *basedto.Auth,
+	setting *entity.Setting,
+	action base.ActionType,
+) error {
+	hasPerm, err := uc.PermissionManager.CheckAccessOnSetting(ctx, db, auth, &permission.BaseAccessCheck{
+		Action: action,
+	}, setting)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	if !hasPerm {
+		return hperrors.Wrap(hperrors.ErrUserNotHavePermissionOnResource)
+	}
+	return nil
+}
+
+func TransformSettingBase(setting *entity.Setting) (resp *BaseSettingResp, err error) {
+	if setting == nil {
+		return nil, nil
+	}
+	if err = copier.Copy(&resp, setting); err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if setting.ObjectID != setting.CurrentObjectID {
+		resp.Inherited = true
+	}
+	return resp, nil
+}
+
+func NewMissingSetting(id string, typ base.SettingType) *BaseSettingResp {
+	return &BaseSettingResp{
+		ID:     id,
+		Type:   typ,
+		Status: base.SettingStatusMissing,
+		Name:   "missing",
+	}
+}

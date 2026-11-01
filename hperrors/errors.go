@@ -1,0 +1,203 @@
+package hperrors
+
+import (
+	"errors"
+	"net/http"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/hivepaas/shellwing-server/pkg/errstack"
+	"github.com/hivepaas/shellwing-server/pkg/translation"
+)
+
+type ErrLevel uint8
+
+const (
+	ErrLevelInfo  ErrLevel = iota + 1
+	ErrLevelWarn  ErrLevel = iota + 1
+	ErrLevelError ErrLevel = iota + 1
+)
+
+// ShouldRecord reports whether an error at this level is worth storing for someone
+// to look at later.
+//
+// Everything below WARN is the caller being told no - a failed validation, an expired
+// token, a permission denied, a business rule refusing an action. Nobody can act on
+// those, and anyone who can reach the API can produce them at will, so recording them
+// turns the store into a log of other people's mistakes and hands an attacker a way
+// to grow the database from outside.
+func (l ErrLevel) ShouldRecord() bool {
+	return l >= ErrLevelWarn
+}
+
+// ParseError parse the given error and return a list of ErrorInfo.
+// If the given error is a single one, the returned slice will contain only one item.
+func ParseError(err error, lang translation.Lang) (*ErrorInfo, ErrLevel) {
+	// err is ValidationErrors
+	if validationErrs, ok := errors.AsType[ValidationErrors](err); ok {
+		return validationErrs.Build(lang), ErrLevelInfo
+	}
+
+	// `New` will automatically create AppError if the input is not AppError
+	appErr := Wrap(err)
+	errorInfo := appErr.Build(lang)
+	// Any 5xx is ours, not the caller's: 500 for a bug, 503 when a dependency is
+	// down, 501 for a path that was never finished. Matching only 500 would file an
+	// outage as an ordinary user error.
+	if errorInfo.Status >= http.StatusInternalServerError {
+		return errorInfo, ErrLevelError
+	}
+	if isWarnLevelError(appErr) {
+		return errorInfo, ErrLevelWarn
+	}
+	// User error, not the logic and not unexpected, reports at INFO level
+	return errorInfo, ErrLevelInfo
+}
+
+// isWarnLevelError reports whether the error is one of the errors that are unexpected
+// despite the status they carry.
+func isWarnLevelError(err error) bool {
+	for _, warnErr := range warnLevelErrors {
+		if errors.Is(err, warnErr) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetErrorDetail is what a person is told of an error: its code, then what the
+// code means. An error no code names is its message alone.
+func GetErrorDetail(err error, lang translation.Lang) string {
+	if err == nil {
+		return ""
+	}
+	if lang == "" {
+		lang = translation.GetDefaultLang()
+	}
+	errInfo, _ := ParseError(err, lang)
+	if errInfo == nil {
+		return err.Error()
+	}
+	if errInfo.Code == "" {
+		return errInfo.Detail
+	}
+	return errInfo.Code + "\n" + errInfo.Detail
+}
+
+func GetErrorStackTrace(err error) string {
+	return errstack.Trace(err)
+}
+
+// NewInternal return HPError for error Internal
+func NewInternal() HPError {
+	return Wrap(ErrInternal)
+}
+
+// NewPanic return HPError for error Panic
+func NewPanic(err any) HPError {
+	return Wrap(ErrPanic).WithParam("Error", err)
+}
+
+// NewNotFound return HPError for error NotFound
+func NewNotFound(name any) HPError {
+	return Wrap(ErrNotFound).WithParam("Name", name)
+}
+
+// NewAlreadyExist return HPError for error AlreadyExist
+func NewAlreadyExist(name any) HPError {
+	return Wrap(ErrAlreadyExist).WithParam("Name", name)
+}
+
+// NewConflict return HPError for error Conflict
+func NewConflict(name any) HPError {
+	return Wrap(ErrConflict).WithParam("Name", name)
+}
+
+// NewArgumentInvalid return HPError for error ErrArgumentInvalid
+func NewArgumentInvalid(name any) HPError {
+	return Wrap(ErrArgumentInvalid).WithParam("Name", name)
+}
+
+// NewUnavailable return HPError for error Unavailable
+func NewUnavailable(name any) HPError {
+	return Wrap(ErrUnavailable).WithParam("Name", name)
+}
+
+// NewForbidden return HPError for error Forbidden
+func NewForbidden(name any) HPError {
+	return Wrap(ErrForbidden).WithParam("Name", name)
+}
+
+// NewNonEditable return HPError for error NonEditable
+func NewNonEditable(name any) HPError {
+	return Wrap(ErrNonEditable).WithParam("Name", name)
+}
+
+// NewNonDeletable return HPError for error NonDeletable
+func NewNonDeletable(name any) HPError {
+	return Wrap(ErrNonDeletable).WithParam("Name", name)
+}
+
+// NewInUse return HPError for error ResourceInUse
+func NewInUse(name any) HPError {
+	return Wrap(ErrInUse).WithParam("Name", name)
+}
+
+// NewInactive return HPError for error ResourceInactive
+func NewInactive(name any) HPError {
+	return Wrap(ErrInactive).WithParam("Name", name)
+}
+
+// NewMissing return HPError for error ResourceMissing
+func NewMissing(name any) HPError {
+	return Wrap(ErrMissing).WithParam("Name", name)
+}
+
+// NewMismatch return HPError for error Mismatch
+func NewMismatch(left, right any) HPError {
+	return Wrap(ErrMismatch).WithParam("Left", left).WithParam("Right", right)
+}
+
+// NewUnsupported return HPError for error Unsupported
+func NewUnsupported(name any) HPError {
+	return Wrap(ErrUnsupported).WithParam("Name", name)
+}
+
+// NewNotImplemented return HPError for error NotImplemented
+func NewNotImplemented() HPError {
+	return Wrap(ErrNotImplemented)
+}
+
+// ToGRPCError converts any error (including HPError) to a gRPC status error.
+func ToGRPCError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// If it is already a gRPC status error, return as is
+	if _, ok := status.FromError(err); ok {
+		return err
+	}
+
+	if appErr, ok := errors.AsType[HPError](err); ok {
+		grpcCode, known := grpcErrorStatusMap[getBaseError(appErr)]
+		if !known {
+			// An error of no base the map knows - one wrapped from outside - is
+			// still an error: code 0 is OK, and status.Error(OK) is no error at
+			// all, which would end the call as if it had succeeded.
+			grpcCode = codes.Unknown
+		}
+
+		// Translate the error message using Default English Language
+		detail, _ := appErr.Message(translation.LangEn)
+		if detail == "" {
+			detail = appErr.Error()
+		}
+
+		return status.Error(grpcCode, detail) //nolint:wrapcheck
+	}
+
+	// Fallback to internal error code
+	return status.Error(codes.Internal, err.Error()) //nolint:wrapcheck
+}

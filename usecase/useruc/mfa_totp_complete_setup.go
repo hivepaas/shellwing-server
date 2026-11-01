@@ -1,0 +1,68 @@
+package useruc
+
+import (
+	"context"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/pkg/totp"
+	"github.com/hivepaas/shellwing-server/pkg/transaction"
+	"github.com/hivepaas/shellwing-server/usecase/useruc/userdto"
+)
+
+func (uc *UC) CompleteMFATotpSetup(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *userdto.CompleteMFATotpSetupReq,
+) (*userdto.CompleteMFATotpSetupResp, error) {
+	if auth.User.IsDemoUser() {
+		return nil, hperrors.Wrap(hperrors.ErrUserDemoUnauthorized)
+	}
+
+	mfaTokenClaims, err := uc.userService.ParseMFATotpSetupToken(req.TotpToken)
+	if err != nil {
+		return nil, hperrors.Wrap(hperrors.ErrTokenInvalid).WithCause(err)
+	}
+
+	err = transaction.Execute(ctx, uc.db, func(db database.Tx) error {
+		user, err := uc.userRepo.GetByID(ctx, db, auth.User.ID,
+			bunex.SelectFor("UPDATE"),
+		)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+		if user.SecurityOption == base.UserSecurityEnforceSSO {
+			return hperrors.Wrap(hperrors.ErrActionNotAllowed).
+				WithMsgLog("user authentication method is enforce-sso")
+		}
+
+		// Verify passcode
+		if !totp.VerifyPasscode(req.Passcode, mfaTokenClaims.Secret) {
+			return hperrors.Wrap(hperrors.ErrPasscodeMismatched)
+		}
+
+		user.TotpSecret = mfaTokenClaims.Secret
+		if user.Status == base.UserStatusPending && user.SecurityOption == base.UserSecurityPassword2FA {
+			user.Status = base.UserStatusActive
+		}
+		user.UpdatedAt = timeutil.NowUTC()
+		err = uc.userRepo.Update(ctx, db, user,
+			bunex.UpdateColumns("updated_at", "totp_secret", "status"),
+		)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		return uc.recordUserChange(ctx, db, auth, base.AuditLogTypeUserUpdate,
+			auditSectionMFASetup, user, nil)
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &userdto.CompleteMFATotpSetupResp{}, nil
+}

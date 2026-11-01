@@ -1,0 +1,522 @@
+package handler
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net"
+	"net/http"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"github.com/mitchellh/mapstructure"
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/config"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/httputil"
+	"github.com/hivepaas/shellwing-server/pkg/logging"
+	"github.com/hivepaas/shellwing-server/pkg/reqinfo"
+	"github.com/hivepaas/shellwing-server/pkg/safego"
+	"github.com/hivepaas/shellwing-server/pkg/strutil"
+	"github.com/hivepaas/shellwing-server/pkg/tasklog"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/pkg/translation"
+	"github.com/hivepaas/shellwing-server/pkg/ulid"
+	"github.com/hivepaas/shellwing-server/usecase/system/syserroruc"
+	"github.com/hivepaas/shellwing-server/usecase/system/syserroruc/syserrordto"
+)
+
+var (
+	parseStrFuncMap = map[reflect.Type]func(string) (any, error){
+		reflect.TypeFor[time.Time](): func(s string) (any, error) {
+			return time.Parse(time.RFC3339, s)
+		},
+		reflect.TypeFor[time.Duration](): func(s string) (any, error) {
+			return timeutil.ParseTimeDurationWithEmptyIsZero(s)
+		},
+		reflect.TypeFor[timeutil.Date](): func(s string) (any, error) {
+			return timeutil.ParseDate(s)
+		},
+		reflect.TypeFor[timeutil.Duration](): func(s string) (any, error) {
+			return timeutil.ParseDurationWithEmptyIsZero(s)
+		},
+	}
+
+	defaultParseFuncs = []mapstructure.DecodeHookFunc{
+		// TODO: add more parse hook functions for specific types
+
+		func(f reflect.Type, t reflect.Type, data any) (any, error) {
+			switch f.Kind() { //nolint:exhaustive
+			case reflect.String:
+				if fun, exists := parseStrFuncMap[t]; exists {
+					return fun(data.(string)) //nolint:forcetypeassert
+				}
+				return data, nil
+			default:
+				return data, nil
+			}
+		},
+
+		// NOTE: Parse slice should be the last hook function as some
+		// types may be treated as slice, such as UUID can be []byte.
+		mapstructure.StringToSliceHookFunc(","),
+	}
+)
+
+var (
+	wsUpgrader = &websocket.Upgrader{
+		Subprotocols: []string{"access_token"},
+		CheckOrigin:  func(r *http.Request) bool { return true },
+	}
+)
+
+// BaseHandler base handler for every other handler to inherit from
+type BaseHandler struct {
+	sysErrorUC *syserroruc.UC
+}
+
+func New(
+	sysErrorUC *syserroruc.UC,
+) *BaseHandler {
+	return &BaseHandler{
+		sysErrorUC: sysErrorUC,
+	}
+}
+
+// requestInfoKey is where the per-request info is memoized on the gin context, so
+// repeated RequestCtx calls in one request share a request id.
+const requestInfoKey = "hp.requestInfo"
+
+// RequestCtx returns the context the layers below the handler run under.
+//
+// It is the gin context itself, plus the request facts those layers need in a
+// form they can read without importing gin - see pkg/reqinfo. Reaching for the
+// gin context by type assertion would work today and break silently the day this
+// stops returning one.
+func (h *BaseHandler) RequestCtx(ginCtx *gin.Context) context.Context {
+	return reqinfo.NewContext(ginCtx, requestInfoOf(ginCtx))
+}
+
+// requestInfoOf builds - and memoizes on the gin context - the request facts.
+func requestInfoOf(ginCtx *gin.Context) *reqinfo.RequestInfo {
+	if ginCtx == nil {
+		return nil
+	}
+	if cached, ok := ginCtx.Get(requestInfoKey); ok {
+		if info, ok := cached.(*reqinfo.RequestInfo); ok {
+			return info
+		}
+	}
+
+	info := &reqinfo.RequestInfo{RequestID: gofn.Must(ulid.NewStringULID())}
+	if ginCtx.Request != nil {
+		info.ClientIP = ginCtx.ClientIP()
+		info.RemoteAddr = remoteAddrOf(ginCtx.Request.RemoteAddr)
+		info.UserAgent = ginCtx.Request.UserAgent()
+	}
+	ginCtx.Set(requestInfoKey, info)
+
+	return info
+}
+
+// remoteAddrOf strips the port from an http.Request.RemoteAddr. The port is a
+// different one on every connection, so keeping it only makes the addresses
+// harder to group.
+func remoteAddrOf(remoteAddr string) string {
+	if remoteAddr == "" {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr // not host:port, keep whatever it is
+	}
+	return host
+}
+
+// RenderResponse renders response to client as JSON
+func (h *BaseHandler) RenderResponse(ctx *gin.Context, status int, body any) {
+	ctx.JSON(status, body)
+}
+
+// RenderError renders errors to client as JSON
+func (h *BaseHandler) RenderError(ctx *gin.Context, err error) {
+	errInfo := h.ErrorInfoOf(ctx, err)
+	ctx.JSON(errInfo.Status, errInfo)
+}
+
+// ErrorInfoOf is the answer an error makes, as RenderError writes it: kept as
+// SaveError keeps it, without what only a dev environment shows. A handler that
+// answers over a websocket sends it in a message.
+func (h *BaseHandler) ErrorInfoOf(ctx *gin.Context, err error) *hperrors.ErrorInfo {
+	// Parse the error
+	errInfo, errLevel := hperrors.ParseError(err, h.ParseRequestLang(ctx))
+	h.SaveError(ctx, errInfo, errLevel)
+
+	// Remove the error debug data from the response if we are not in dev env
+	if !config.Current().IsDevEnv() {
+		// these fields are for dev only
+		errInfo.Cause = ""
+		errInfo.DebugLog = ""
+		errInfo.StackTrace = ""
+
+		// Also remove the details from InnerErrors
+		for i := range errInfo.InnerErrors {
+			errInfo.InnerErrors[i].Cause = ""
+		}
+	}
+	return errInfo
+}
+
+// SaveError logs an error and saves it into the DB, if it is one worth keeping.
+//
+// Every error is logged. Only errors at WARN level and above are stored - see
+// ErrLevel.ShouldRecord for why the rest are dropped - and the store additionally
+// collapses repeats of the same error. Logging first is what makes both of those
+// safe: whatever the store leaves out, the log still has, and logs rotate while a
+// table does not.
+func (h *BaseHandler) SaveError(ctx *gin.Context, errInfo *hperrors.ErrorInfo, level hperrors.ErrLevel) {
+	logRequestError(ctx, errInfo, level)
+	if !level.ShouldRecord() {
+		return
+	}
+	if h != nil && h.sysErrorUC != nil {
+		_, _ = h.sysErrorUC.CreateSysError(ctx, &syserrordto.CreateSysErrorReq{
+			ErrorInfo: errInfo,
+		})
+	}
+}
+
+// logRequestError writes one line for a failed request. It runs before RenderError
+// strips the debug fields, so the cause is still there to log even though the response
+// will not carry it.
+func logRequestError(ctx *gin.Context, errInfo *hperrors.ErrorInfo, level hperrors.ErrLevel) {
+	if errInfo == nil {
+		return
+	}
+	method, path := "", ""
+	if ctx != nil && ctx.Request != nil {
+		method, path = ctx.Request.Method, ctx.Request.URL.Path
+	}
+	detail := errInfo.Detail
+	if errInfo.DebugLog != "" {
+		detail += " | " + errInfo.DebugLog
+	}
+	if errInfo.Cause != "" {
+		detail += " | cause: " + errInfo.Cause
+	}
+	// Errors the caller caused are ordinary traffic; the rest are ours to look at.
+	logf := logging.Infof
+	if level.ShouldRecord() {
+		logf = logging.Errorf
+	}
+	logf("%s %s -> %d %s: %s", method, path, errInfo.Status, errInfo.Code, detail)
+}
+
+// parsePagination parses paging and sorting params
+//
+//nolint:gocognit
+func (h *BaseHandler) parsePagination(ctx *gin.Context, paging *basedto.Paging) error {
+	if paging.Limit == 0 {
+		paging.Limit = basedto.PageLimitDefault
+	}
+
+	if limitStr := ctx.Query("pageLimit"); limitStr != "" {
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit <= 0 || limit > basedto.PageLimitMax {
+			return hperrors.NewArgumentInvalid("pageLimit")
+		}
+		paging.Limit = limit
+	}
+	if offsetStr := ctx.Query("pageOffset"); offsetStr != "" {
+		offset, err := strconv.Atoi(offsetStr)
+		if err != nil || offset < 0 {
+			return hperrors.NewArgumentInvalid("pageOffset")
+		}
+		if offset > 0 {
+			paging.Offset = offset
+		}
+	}
+
+	if sortQuery := ctx.Query("sort"); sortQuery != "" {
+		orders := basedto.Orders{}
+		sort := strings.Split(sortQuery, ",")
+		for _, str := range sort {
+			if strings.HasPrefix(str, "-") {
+				if len(str) == 1 {
+					return hperrors.NewArgumentInvalid("sort")
+				}
+				orders.Add(&basedto.Order{Direction: basedto.DirectionDesc, ColumnName: str[1:]})
+			} else {
+				orders.Add(&basedto.Order{Direction: basedto.DirectionAsc, ColumnName: str})
+			}
+		}
+		if len(paging.Sort) > 0 {
+			orders.Add(paging.Sort...)
+		}
+		paging.Sort = orders
+	}
+	// Converts camelCase to snake_case
+	for _, order := range paging.Sort {
+		// Column name may include table such as `task.created_at`
+		parts := strings.Split(order.ColumnName, ".")
+		for i := range parts {
+			parts[i] = strutil.ToSnakeCase(parts[i])
+		}
+		order.ColumnName = strings.Join(parts, ".")
+	}
+
+	return nil
+}
+
+// parseQuery parse request query from URL of style /api?key1=val1&key2=val2
+func (h *BaseHandler) parseQuery(ctx *gin.Context, query any) error {
+	mapQuery := map[string]string{}
+	urlQueries := ctx.Request.URL.Query()
+	for k, v := range urlQueries {
+		mapQuery[k] = strings.Join(v, ",")
+	}
+	// NOTE: caller should call ParseMultipartForm()/ParseForm() if the request contains form data.
+	for formParam, value := range ctx.Request.Form {
+		mapQuery[formParam] = strings.Join(value, ",")
+	}
+	if len(mapQuery) == 0 {
+		return nil
+	}
+	if err := refuseNUL(query, queryHasNUL(mapQuery)); err != nil {
+		return err
+	}
+
+	config := &mapstructure.DecoderConfig{
+		Result:           query,
+		ZeroFields:       true,
+		WeaklyTypedInput: true,
+		Squash:           true,
+	}
+
+	if len(defaultParseFuncs) == 1 {
+		config.DecodeHook = defaultParseFuncs[0]
+	} else if len(defaultParseFuncs) > 1 {
+		config.DecodeHook = mapstructure.ComposeDecodeHookFunc(defaultParseFuncs...)
+	}
+
+	decoder, err := mapstructure.NewDecoder(config)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	if err = decoder.Decode(mapQuery); err != nil {
+		return hperrors.NewArgumentInvalid("query").WithCause(err)
+	}
+
+	return nil
+}
+
+// ParseAndValidateRequest parses request query, then validate the request.
+//
+// See ParseRequest.
+func (h *BaseHandler) ParseAndValidateRequest(ctx *gin.Context, reqStruct any, paging *basedto.Paging) error {
+	err := h.ParseRequest(ctx, reqStruct, paging)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return modifyAndValidate(reqStruct)
+}
+
+// modifyAndValidate runs a parsed request's own modifier, then its validator,
+// once the structs it embeds are there - see fillNilEmbedded.
+func modifyAndValidate(reqStruct any) error {
+	fillNilEmbedded(reflect.ValueOf(reqStruct))
+
+	// Execute custom modifier for the request input
+	if modifier, ok := reqStruct.(basedto.ReqModifier); ok {
+		if err := modifier.ModifyRequest(); err != nil {
+			return hperrors.Wrap(err)
+		}
+	}
+
+	// Execute custom validator for the request input
+	if validator, ok := reqStruct.(basedto.ReqValidator); ok {
+		if vldErrs := validator.Validate(); len(vldErrs) > 0 {
+			return vldErrs
+		}
+	}
+
+	return nil
+}
+
+// ParseRequest parses request query.
+//
+// The request struct should be defined similarly as:
+//
+//	type ListProjectReq struct {
+//	   Key1 int    `mapstructure:"key1"`
+//	   Key2 string `mapstructure:"key2"`
+//	}
+func (h *BaseHandler) ParseRequest(ctx *gin.Context, reqStruct any, paging *basedto.Paging) error {
+	if err := h.parseQuery(ctx, reqStruct); err != nil {
+		return err
+	}
+	if paging != nil {
+		if err := h.parsePagination(ctx, paging); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ParseStringParam parse string from context param
+func (h *BaseHandler) ParseStringParam(ctx *gin.Context, paramName string) (string, error) {
+	idStr := ctx.Params.ByName(paramName)
+	if idStr == "" {
+		return "", hperrors.Wrap(hperrors.ErrBadRequest).
+			WithMsgLog("require param `%s` of type string in URL", paramName)
+	}
+	return idStr, nil
+}
+
+// ParseIntParam parse uint from context param
+func (h *BaseHandler) ParseIntParam(ctx *gin.Context, paramName string) (int, error) {
+	value, err := strconv.ParseInt(ctx.Param(paramName), 10, 64) //nolint:mnd
+	if err != nil {
+		return 0, hperrors.Wrap(hperrors.ErrBadRequest).WithCause(err).
+			WithMsgLog("require param `%s` of type int in URL", paramName)
+	}
+	return int(value), nil
+}
+
+// ParseUintParam parse uint from context param
+func (h *BaseHandler) ParseUintParam(ctx *gin.Context, paramName string) (uint, error) {
+	value, err := strconv.ParseUint(ctx.Param(paramName), 10, 64) //nolint:mnd
+	if err != nil {
+		return 0, hperrors.Wrap(hperrors.ErrBadRequest).WithCause(err).
+			WithMsgLog("require param `%s` of type uint in URL", paramName)
+	}
+	return uint(value), nil
+}
+
+// LimitRequestBody caps what is read of the request's body: a read past maxBytes fails, and the request is
+// answered as a bad one. A handler open to anybody sets it before reading a body it never needs much of, so that
+// a large one is refused after maxBytes rather than read whole.
+func (h *BaseHandler) LimitRequestBody(ctx *gin.Context, maxBytes int64) {
+	if ctx.Request.Body == nil {
+		return
+	}
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maxBytes)
+}
+
+// ParseAndValidateJSONBody parse request body as JSON, then validate the result
+func (h *BaseHandler) ParseAndValidateJSONBody(ctx *gin.Context, reqStruct any) error {
+	err := h.ParseJSONBody(ctx, reqStruct)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return modifyAndValidate(reqStruct)
+}
+
+// ParseJSONBody parse request body as JSON
+func (h *BaseHandler) ParseJSONBody(ctx *gin.Context, reqStruct any) error {
+	var buf bytes.Buffer
+	ctx.Request.Body = io.NopCloser(io.TeeReader(ctx.Request.Body, &buf))
+
+	if err := ctx.ShouldBindJSON(reqStruct); err != nil && buf.Len() > 0 {
+		if handler, ok := reqStruct.(basedto.ReqParsingErrorHandler); ok {
+			if newErr := handler.HandleParsingError(err); newErr != nil {
+				return hperrors.Wrap(newErr)
+			}
+		}
+		return hperrors.Wrap(hperrors.ErrBadRequest).WithCause(err)
+	}
+	if err := refuseNUL(reqStruct, jsonHasNUL(buf.Bytes())); err != nil {
+		return err
+	}
+
+	ctx.Request.Body = io.NopCloser(&buf)
+	return nil
+}
+
+func (h *BaseHandler) ParseRequestLang(ctx *gin.Context) translation.Lang {
+	return httputil.ParseRequestLang(ctx.GetHeader("Accept-Language"))
+}
+
+func (h *BaseHandler) StreamAppLogs(
+	ctx *gin.Context,
+	staticLogs []*tasklog.LogFrame, // static logs are in DB
+	realtimeLogsStream <-chan []*tasklog.LogFrame, // realtime logs streaming channel
+	logsStreamCloser func() error,
+) {
+	conn, err := wsUpgrader.Upgrade(ctx.Writer, ctx.Request, nil)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	defer conn.Close()
+
+	if logsStreamCloser != nil {
+		defer func() {
+			_ = logsStreamCloser()
+		}()
+	}
+
+	writeFrames := func(frames []*tasklog.LogFrame) error {
+		dataBytes, err := json.Marshal(frames)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+		return conn.WriteMessage(websocket.BinaryMessage, dataBytes)
+	}
+
+	// Send static logs first
+	for _, chunk := range gofn.Chunk(staticLogs, 100) { //nolint:mnd
+		if err := writeFrames(chunk); err != nil {
+			return
+		}
+	}
+
+	// Read loop to detect client connection close/abort
+	done := make(chan struct{})
+	go func() {
+		// gin's recovery middleware only covers the handler goroutine, not this one.
+		defer safego.Recover("basehandler.websocketReadLoop")
+		defer close(done)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Stream real-time logs
+	if realtimeLogsStream != nil {
+		for {
+			select {
+			case <-done:
+				return
+			case log, ok := <-realtimeLogsStream:
+				if !ok {
+					return
+				}
+				if err := writeFrames(log); err != nil {
+					return
+				}
+			}
+		}
+	}
+}
+
+func (h *BaseHandler) UpgradeWebsocket(ctx *gin.Context) (*websocket.Conn, error) {
+	conn, err := wsUpgrader.Upgrade(ctx.Writer, ctx.Request, nil)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return conn, nil
+}
+
+func (h *BaseHandler) IsWebsocketRequest(ctx *gin.Context) bool {
+	return strings.ToLower(ctx.Request.Header.Get("Connection")) == "upgrade"
+}

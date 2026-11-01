@@ -1,0 +1,222 @@
+package settings
+
+import (
+	"context"
+	"strings"
+
+	vld "github.com/tiendc/go-validator"
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/pkg/transaction"
+	"github.com/hivepaas/shellwing-server/service/settingeventservice"
+)
+
+type UpdateSettingReq struct {
+	BaseSettingReq
+	ID          string `json:"-"`
+	Inheritable bool   `json:"inheritable"`
+	Default     bool   `json:"default"`
+	UpdateVer   int    `json:"updateVer"`
+}
+
+func (req *UpdateSettingReq) Validate() (validators []vld.Validator) {
+	validators = append(validators, basedto.ValidateID(&req.ID, true, "id")...)
+	return
+}
+
+type UpdateSettingResp struct {
+	Meta *basedto.Meta `json:"meta"`
+}
+
+type UpdateSettingData struct {
+	BaseSettingData
+
+	Setting *entity.Setting
+
+	VerifyingName       string
+	VerifyingRefIDs     *entity.RefObjectIDs
+	MultiDefaultAllowed bool
+	ExtraLoadOpts       []bunex.SelectQueryOption
+
+	Load             func(context.Context, database.Tx, *UpdateSettingData) error
+	AfterLoading     func(context.Context, database.Tx, *UpdateSettingData) error
+	PrepareUpdate    func(context.Context, database.Tx, *UpdateSettingData, *PersistingSettingData) error
+	BeforePersisting func(context.Context, database.Tx, *UpdateSettingData, *PersistingSettingData) error
+	AfterPersisting  func(context.Context, database.Tx, *UpdateSettingData, *PersistingSettingData) error
+}
+
+type PersistingSettingData struct {
+	Setting           *entity.Setting
+	UpsertingSettings []*entity.Setting
+}
+
+func (uc *BaseUC) UpdateSetting(
+	ctx context.Context,
+	req *UpdateSettingReq,
+	data *UpdateSettingData,
+) (*UpdateSettingResp, error) {
+	err := transaction.Execute(ctx, uc.DB, func(db database.Tx) error {
+		err := uc.loadSettingForUpdate(ctx, db, req, data)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		if data.AfterLoading != nil {
+			if err := data.AfterLoading(ctx, db, data); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
+		persistingData := &PersistingSettingData{}
+		uc.prepareSettingUpdate(req, data, persistingData)
+
+		if data.PrepareUpdate != nil {
+			if err := data.PrepareUpdate(ctx, db, data, persistingData); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
+		if data.BeforePersisting != nil {
+			if err := data.BeforePersisting(ctx, db, data, persistingData); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
+		err = uc.persistSettingUpdate(ctx, db, req, data, persistingData)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		if data.AfterPersisting != nil {
+			if err := data.AfterPersisting(ctx, db, data, persistingData); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
+		err = uc.recordSettingAudit(ctx, db, &req.BaseSettingReq,
+			base.AuditLogTypeSettingUpdate, base.AuditLogSourceAPIUpdate,
+			data.Setting, persistingData.Setting)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		// Fire update event
+		err = uc.SettingEventService.OnUpdate(ctx, db, &settingeventservice.UpdateEvent{
+			Setting:    persistingData.Setting,
+			OldSetting: data.Setting,
+		})
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &UpdateSettingResp{}, nil
+}
+
+func (uc *BaseUC) loadSettingForUpdate(
+	ctx context.Context,
+	db database.Tx,
+	req *UpdateSettingReq,
+	data *UpdateSettingData,
+) (err error) {
+	if err = uc.ScopeService.LoadObjectScopeData(ctx, db, req.Scope); err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	if data.Load != nil {
+		err = data.Load(ctx, db, data)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+	} else {
+		loadOpts := []bunex.SelectQueryOption{
+			bunex.SelectFor("UPDATE OF setting"),
+		}
+		loadOpts = append(loadOpts, data.ExtraLoadOpts...)
+		setting, err := uc.loadSettingByID(ctx, db, &req.BaseSettingReq, req.ID,
+			false, loadOpts...)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+		data.Setting = setting
+	}
+
+	setting := data.Setting
+	if req.UpdateVer != setting.UpdateVer {
+		return hperrors.Wrap(hperrors.ErrUpdateVerMismatched)
+	}
+
+	if setting.ObjectID != req.Scope.ScopeObjectID() {
+		return hperrors.Wrap(hperrors.ErrInheritedSettingNonUpdatable)
+	}
+
+	// If name changes, validate the new one
+	if data.VerifyingName != "" && !strings.EqualFold(setting.Name, data.VerifyingName) {
+		err = uc.checkNameConflict(ctx, db, &req.BaseSettingReq, data.VerifyingName)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+	}
+
+	// Verify that the referenced settings exist
+	err = uc.checkRefObjectsExistence(ctx, db, &req.BaseSettingReq, data.VerifyingRefIDs, true)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	return nil
+}
+
+func (uc *BaseUC) prepareSettingUpdate(
+	req *UpdateSettingReq,
+	data *UpdateSettingData,
+	persistingData *PersistingSettingData,
+) {
+	timeNow := timeutil.NowUTC()
+	copySetting := *data.Setting
+	setting := &copySetting
+	setting.Name = gofn.Coalesce(data.VerifyingName, setting.Name)
+	setting.Inheritable = req.Inheritable
+	setting.Default = req.Default
+	setting.UpdateVer++
+	setting.UpdatedAt = timeNow
+
+	persistingData.Setting = setting
+}
+
+func (uc *BaseUC) persistSettingUpdate(
+	ctx context.Context,
+	db database.IDB,
+	req *UpdateSettingReq,
+	data *UpdateSettingData,
+	persistingData *PersistingSettingData,
+) error {
+	upsertingSettings := append([]*entity.Setting{}, persistingData.UpsertingSettings...)
+	upsertingSettings = append(upsertingSettings, persistingData.Setting)
+	err := uc.SettingRepo.UpsertMulti(ctx, db, upsertingSettings,
+		entity.SettingUpsertingConflictCols, entity.SettingUpsertingUpdateCols)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	if !data.MultiDefaultAllowed && !data.Setting.Default && persistingData.Setting.Default {
+		err = uc.ensureSettingDefaultUniqueness(ctx, db, &req.BaseSettingReq, persistingData.Setting)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+	}
+
+	return nil
+}

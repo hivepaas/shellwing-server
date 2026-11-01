@@ -1,0 +1,34 @@
+package recovery
+
+import (
+	"io"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/hivepaas/shellwing-server/config"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/interface/api/handler"
+	"github.com/hivepaas/shellwing-server/pkg/safego"
+)
+
+// Recovery create a middleware for recovering from panic
+func Recovery(cfg *config.Config, baseHandler *handler.BaseHandler) gin.HandlerFunc {
+	// In production, use `nil` as writer to prevent Gin to log sensitive information
+	// of the request to the default stderr.
+	var writer io.Writer
+	if cfg.IsDevEnv() {
+		writer = gin.DefaultErrorWriter
+	}
+
+	return gin.CustomRecoveryWithWriter(writer, func(ctx *gin.Context, recover any) {
+		defer safego.Recover("gin.Recovery")
+		err := hperrors.Wrap(hperrors.ErrInternal).
+			WithMsgLog("recovered from panic: %v", recover)
+		if baseHandler != nil {
+			baseHandler.RenderError(ctx, err)
+		} else {
+			(&handler.BaseHandler{}).RenderError(ctx, err)
+		}
+		ctx.Abort()
+	})
+}

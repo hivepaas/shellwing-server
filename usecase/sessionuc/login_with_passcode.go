@@ -1,0 +1,97 @@
+package sessionuc
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/entity/cacheentity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/pkg/totp"
+	"github.com/hivepaas/shellwing-server/usecase/sessionuc/sessiondto"
+)
+
+const (
+	passcodeMaxAttempts = 5
+	mfaPasscodeDuration = 2 * time.Minute
+)
+
+func (uc *UC) LoginWithPasscode(
+	ctx context.Context,
+	req *sessiondto.LoginWithPasscodeReq,
+) (resp *sessiondto.LoginWithPasscodeResp, err error) {
+	mfaTokenClaims, err := uc.userService.ParseMFAToken(req.MFAToken)
+	if err != nil {
+		return nil, hperrors.Wrap(hperrors.ErrTokenInvalid).WithCause(err)
+	}
+
+	dbUser, err := uc.userRepo.GetByID(ctx, uc.db, mfaTokenClaims.UserID)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	// Verify passcode TOTP
+	if !totp.VerifyPasscode(req.Passcode, dbUser.TotpSecret) {
+		passcode, err := uc.cacheMfaPasscodeRepo.Get(ctx, mfaTokenClaims.UserID)
+		if err != nil && !errors.Is(err, hperrors.ErrNotFound) {
+			return nil, hperrors.Wrap(err)
+		}
+		// A wrong second factor is worth more than a wrong password: whoever is
+		// here already got past the password, so these are the attempts that say
+		// an account's password is known to somebody it should not be.
+		if passcode == nil {
+			passcode = &cacheentity.MFAPasscode{Attempts: 1}
+			_ = uc.cacheMfaPasscodeRepo.Set(ctx, mfaTokenClaims.UserID, passcode, mfaPasscodeDuration)
+			return nil, uc.refusePasscodeLogin(ctx, dbUser, auditReasonWrongPasscode,
+				hperrors.ErrPasscodeMismatched)
+		}
+		if passcode.Attempts >= passcodeMaxAttempts {
+			_ = uc.cacheMfaPasscodeRepo.Del(ctx, mfaTokenClaims.UserID)
+			return nil, uc.refusePasscodeLogin(ctx, dbUser, auditReasonTooManyPasscodes,
+				hperrors.Wrap(hperrors.ErrTooManyPasscodeAttempts).
+					WithMsgLog("too many passcode attempts: %d", passcode.Attempts))
+		}
+		// Increase the attempts
+		_ = uc.cacheMfaPasscodeRepo.IncrAttempts(ctx, mfaTokenClaims.UserID, passcode)
+		return nil, uc.refusePasscodeLogin(ctx, dbUser, auditReasonWrongPasscode,
+			hperrors.ErrPasscodeMismatched)
+	}
+
+	// Removes the passcode in redis
+	if err = uc.cacheMfaPasscodeRepo.Del(ctx, mfaTokenClaims.UserID); err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	// Save trusted device if needs to
+	if mfaTokenClaims.TrustedDeviceID != "" {
+		timeNow := timeutil.NowUTC()
+		trustedDevice := &entity.LoginTrustedDevice{
+			UserID:    dbUser.ID,
+			DeviceID:  mfaTokenClaims.TrustedDeviceID,
+			CreatedAt: timeNow,
+			UpdatedAt: timeNow,
+		}
+		err = uc.loginTrustedDeviceRepo.Upsert(ctx, uc.db, trustedDevice,
+			entity.LoginTrustedDeviceUpsertingConflictCols, entity.LoginTrustedDeviceUpsertingUpdateCols)
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+	}
+
+	// Create a new session as login succeeds
+	sessionData, err := uc.createSession(ctx, &sessiondto.BaseCreateSessionReq{
+		User:   dbUser,
+		Method: auditMethodPasscode,
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &sessiondto.LoginWithPasscodeResp{
+		Data: &sessiondto.LoginWithPasscodeDataResp{
+			Session: sessionData,
+		},
+	}, nil
+}

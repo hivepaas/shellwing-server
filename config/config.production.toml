@@ -1,0 +1,38 @@
+# The configuration the release image runs with (SHW_CONFIG_FILE).
+#
+# No secret is in this file. Each is an environment variable, named in a comment where its setting would be;
+# docs/deploying.md has the whole list. A variable overrides the setting it names here, and a config.toml in the app
+# path (/var/lib/shellwing) replaces this file whole.
+#
+# Set in the web app, not here: the default system email account (Integrations > Email accounts), which invitations
+# and sign-up need, and two-factor authentication for the admin.
+
+env = "production"
+platform = "remote"
+# root_domain and app_domain: SHW_ROOT_DOMAIN and SHW_APP_DOMAIN, where this server is reached. The web app is served
+# beside the API, so web_base_url stays empty.
+# secret: SHW_APP_SECRET, 64 hex characters. Everything stored as a secret is encrypted with it, so it is backed up
+# elsewhere, and never changed without backing up shellwing.toml in the app path first.
+
+[users]
+    self_signup_enabled = false
+    # The first admin, on the first boot only: SHW_USER_ADMIN_EMAIL, SHW_USER_ADMIN_USERNAME and
+    # SHW_USER_ADMIN_PASSWORD. Remove them once the admin exists.
+
+[db]
+    # host, port, user and db_name: SHW_DB_HOST, SHW_DB_PORT, SHW_DB_USER and SHW_DB_DB_NAME.
+    # password: SHW_DB_PASSWORD, in hex: sql-migrate (db/dbconfig.yml) puts it in a URL.
+    # This expects a private network between the server and its database. Set SHW_DB_SSL_MODE=require if there is none.
+    ssl_mode = "disable"
+
+[cache]
+    # url: SHW_CACHE_URL, redis://default:<password>@<host>:6379/0.
+
+[http_server]
+    # cors_allow_origins: SHW_HTTP_SERVER_CORS_ALLOW_ORIGINS, when the web app is on another origin.
+    # trusted_proxies: SHW_HTTP_SERVER_TRUSTED_PROXIES, the proxy in front of this server. Rate limits count by the
+    # client's address, which only a trusted proxy gives.
+
+[session]
+    # jwt_secret: SHW_SESSION_JWT_SECRET, 64 hex characters.
+    # basic_auth_username and basic_auth_password stay empty: they guard development-only routes.

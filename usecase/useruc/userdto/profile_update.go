@@ -1,0 +1,49 @@
+package userdto
+
+import (
+	"strings"
+
+	vld "github.com/tiendc/go-validator"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/strutil"
+)
+
+type UpdateProfileReq struct {
+	Username string        `json:"username"`
+	Email    string        `json:"email"`
+	FullName string        `json:"fullName"`
+	Position *string       `json:"position"`
+	Photo    *UserPhotoReq `json:"photo"`
+	Notes    *string       `json:"notes"`
+}
+
+func NewUpdateProfileReq() *UpdateProfileReq {
+	return &UpdateProfileReq{}
+}
+
+func (req *UpdateProfileReq) ModifyRequest() error {
+	req.Username = strings.TrimSpace(req.Username)
+	req.Email = strutil.NormalizeEmail(req.Email)
+	req.FullName = strings.TrimSpace(req.FullName)
+	return req.Photo.modifyRequest()
+}
+
+func (req *UpdateProfileReq) Validate() hperrors.ValidationErrors {
+	validators := make([]vld.Validator, 0, 10) //nolint:mnd
+	validators = append(validators, validateUsername(&req.Username, false, "username")...)
+	validators = append(validators, basedto.ValidateEmail(&req.Email, false, "email")...)
+	validators = append(validators, basedto.ValidateStr(&req.FullName, false,
+		nameMinLen, nameMaxLen, "fullName")...)
+	validators = append(validators, basedto.ValidateStr(req.Position, false,
+		nameMinLen, nameMaxLen, "position")...)
+	validators = append(validators, validateUserPhoto(req.Photo, "photo")...)
+	validators = append(validators, basedto.ValidateStr(req.Notes, false,
+		notesMinLen, notesMaxLen, "notes")...)
+	return hperrors.NewValidationErrors(vld.Validate(validators...))
+}
+
+type UpdateProfileResp struct {
+	Meta *basedto.Meta `json:"meta"`
+}

@@ -1,0 +1,32 @@
+package internal
+
+import (
+	"context"
+
+	"go.uber.org/fx"
+
+	"github.com/hivepaas/shellwing-server/config"
+	"github.com/hivepaas/shellwing-server/pkg/jwtsession"
+	"github.com/hivepaas/shellwing-server/pkg/logging"
+)
+
+func InitJWTSession(lc fx.Lifecycle, cfg *config.Config, logger logging.Logger) {
+	lc.Append(fx.Hook{
+		OnStart: func(_ context.Context) error {
+			logger.Info("initializing JWT session...")
+			return jwtsession.InitJWTSession(&jwtsession.Config{
+				Secret:                    cfg.Session.JWTSecret,
+				AccessTokenExp:            cfg.Session.AccessTokenExp,
+				RefreshTokenExp:           cfg.Session.RefreshTokenExp,
+				SessionMaxExp:             cfg.Session.SessionMaxExp,
+				PrivilegedAccessTokenExp:  cfg.Session.AdminAccessTokenExp,
+				PrivilegedRefreshTokenExp: cfg.Session.AdminRefreshTokenExp,
+				PrivilegedSessionMaxExp:   cfg.Session.AdminSessionMaxExp,
+			}) //nolint:wrapcheck
+		},
+		OnStop: func(ctx context.Context) error {
+			logger.Info("stopping JWT session...")
+			return nil
+		},
+	})
+}

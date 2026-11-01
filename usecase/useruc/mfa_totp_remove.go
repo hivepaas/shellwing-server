@@ -1,0 +1,74 @@
+package useruc
+
+import (
+	"context"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/pkg/totp"
+	"github.com/hivepaas/shellwing-server/pkg/transaction"
+	"github.com/hivepaas/shellwing-server/usecase/useruc/userdto"
+)
+
+func (uc *UC) RemoveMFATotp(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *userdto.RemoveMFATotpReq,
+) (*userdto.RemoveMFATotpResp, error) {
+	if auth.User.IsDemoUser() {
+		return nil, hperrors.Wrap(hperrors.ErrUserDemoUnauthorized)
+	}
+
+	err := transaction.Execute(ctx, uc.db, func(db database.Tx) error {
+		user, err := uc.userRepo.GetByID(ctx, db, auth.User.ID,
+			bunex.SelectFor("UPDATE"),
+		)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+		if user.TotpSecret == "" {
+			return nil
+		}
+		if user.SecurityOption == base.UserSecurityEnforceSSO {
+			return hperrors.Wrap(hperrors.ErrActionNotAllowed).
+				WithMsgLog("user authentication method is enforce-sso")
+		}
+		if user.SecurityOption == base.UserSecurityPassword2FA {
+			return hperrors.Wrap(hperrors.ErrActionNotAllowed).
+				WithMsgLog("2FA is required by admin")
+		}
+
+		// Verify passcode
+		if !totp.VerifyPasscode(req.Passcode, user.TotpSecret) {
+			// Recorded. Somebody holding a live session and working at the code
+			// that would take the second factor off it is the case this section
+			// exists for, and a refused attempt leaves nothing else behind.
+			if e := uc.recordUserChangeDenied(ctx, db, auth, auditSectionMFARemove,
+				user, auditReasonWrongPasscode); e != nil {
+				return hperrors.Wrap(e)
+			}
+			return hperrors.Wrap(hperrors.ErrPasscodeMismatched)
+		}
+
+		user.TotpSecret = ""
+		user.UpdatedAt = timeutil.NowUTC()
+		err = uc.userRepo.Update(ctx, db, user,
+			bunex.UpdateColumns("updated_at", "totp_secret"),
+		)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		return uc.recordUserChange(ctx, db, auth, base.AuditLogTypeUserUpdate,
+			auditSectionMFARemove, user, nil)
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &userdto.RemoveMFATotpResp{}, nil
+}

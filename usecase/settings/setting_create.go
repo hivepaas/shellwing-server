@@ -1,0 +1,204 @@
+package settings
+
+import (
+	"context"
+
+	vld "github.com/tiendc/go-validator"
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/pkg/transaction"
+	"github.com/hivepaas/shellwing-server/pkg/ulid"
+	"github.com/hivepaas/shellwing-server/service/settingeventservice"
+)
+
+type CreateSettingReq struct {
+	BaseSettingReq
+	Inheritable bool `json:"inheritable"`
+	Default     bool `json:"default"`
+}
+
+func (req *CreateSettingReq) Validate() (validators []vld.Validator) {
+	return
+}
+
+type CreateSettingResp struct {
+	Meta *basedto.Meta         `json:"meta"`
+	Data *basedto.ObjectIDResp `json:"data"`
+}
+
+type CreateSettingData struct {
+	BaseSettingData
+
+	VerifyingName       string
+	VerifyingRefIDs     *entity.RefObjectIDs
+	MultiDefaultAllowed bool
+	Version             int
+
+	AfterLoading     func(context.Context, database.Tx, *CreateSettingData) error
+	PrepareCreation  func(context.Context, database.Tx, *CreateSettingData, *PersistingSettingCreationData) error
+	BeforePersisting func(context.Context, database.Tx, *CreateSettingData, *PersistingSettingCreationData) error
+	AfterPersisting  func(context.Context, database.Tx, *CreateSettingData, *PersistingSettingCreationData) error
+}
+
+type PersistingSettingCreationData struct {
+	Setting           *entity.Setting
+	UpsertingSettings []*entity.Setting
+	UpsertingTags     []*entity.Tag
+}
+
+func (uc *BaseUC) CreateSetting(
+	ctx context.Context,
+	req *CreateSettingReq,
+	data *CreateSettingData,
+) (*CreateSettingResp, error) {
+	var persistingData *PersistingSettingCreationData
+	err := transaction.Execute(ctx, uc.DB, func(db database.Tx) error {
+		err := uc.loadSettingForCreation(ctx, db, req, data)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		if data.AfterLoading != nil {
+			if err := data.AfterLoading(ctx, db, data); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
+		persistingData = &PersistingSettingCreationData{}
+		uc.prepareSettingCreation(req, data, persistingData)
+
+		if data.PrepareCreation != nil {
+			if err := data.PrepareCreation(ctx, db, data, persistingData); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
+		if data.BeforePersisting != nil {
+			if err := data.BeforePersisting(ctx, db, data, persistingData); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
+		err = uc.persistSettingCreation(ctx, db, req, data, persistingData)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		if data.AfterPersisting != nil {
+			if err := data.AfterPersisting(ctx, db, data, persistingData); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
+		err = uc.recordSettingAudit(ctx, db, &req.BaseSettingReq,
+			base.AuditLogTypeSettingCreate, base.AuditLogSourceAPICreate,
+			nil, persistingData.Setting)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		// Fire create event
+		err = uc.SettingEventService.OnCreate(ctx, db, &settingeventservice.CreateEvent{Setting: persistingData.Setting})
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &CreateSettingResp{
+		Data: &basedto.ObjectIDResp{ID: persistingData.Setting.ID},
+	}, nil
+}
+
+func (uc *BaseUC) loadSettingForCreation(
+	ctx context.Context,
+	db database.IDB,
+	req *CreateSettingReq,
+	data *CreateSettingData,
+) (err error) {
+	// Held to the end of the transaction: a setting saved while its user is
+	// being deleted would be missed by the deletion and outlive it.
+	req.Scope.LockScopeObject = true
+	if err = uc.ScopeService.LoadObjectScopeData(ctx, db, req.Scope); err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	// Verify that the name is available to use
+	if data.VerifyingName != "" {
+		err := uc.checkNameConflict(ctx, db, &req.BaseSettingReq, data.VerifyingName)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+	}
+
+	// Verify that the referenced objects exist
+	err = uc.checkRefObjectsExistence(ctx, db, &req.BaseSettingReq, data.VerifyingRefIDs, true)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	return nil
+}
+
+func (uc *BaseUC) prepareSettingCreation(
+	req *CreateSettingReq,
+	data *CreateSettingData,
+	persistingData *PersistingSettingCreationData,
+) {
+	timeNow := timeutil.NowUTC()
+	setting := &entity.Setting{
+		ID:          gofn.Must(ulid.NewStringULID()),
+		Scope:       req.Scope.ScopeType,
+		ObjectID:    req.Scope.ScopeObjectID(),
+		Type:        req.Type,
+		Status:      base.SettingStatusActive,
+		Name:        data.VerifyingName,
+		Inheritable: req.Inheritable,
+		Default:     req.Default,
+		Version:     data.Version,
+		CreatedAt:   timeNow,
+		UpdatedAt:   timeNow,
+	}
+	persistingData.Setting = setting
+}
+
+func (uc *BaseUC) persistSettingCreation(
+	ctx context.Context,
+	db database.IDB,
+	req *CreateSettingReq,
+	data *CreateSettingData,
+	persistingData *PersistingSettingCreationData,
+) error {
+	upsertingSettings := append([]*entity.Setting{}, persistingData.UpsertingSettings...)
+	upsertingSettings = append(upsertingSettings, persistingData.Setting)
+	err := uc.SettingRepo.UpsertMulti(ctx, db, upsertingSettings,
+		entity.SettingUpsertingConflictCols, entity.SettingUpsertingUpdateCols)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	err = uc.TagRepo.UpsertMulti(ctx, db, persistingData.UpsertingTags,
+		entity.TagUpsertingConflictCols, entity.TagUpsertingUpdateCols)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	if !data.MultiDefaultAllowed && persistingData.Setting.Default {
+		err = uc.ensureSettingDefaultUniqueness(ctx, db, &req.BaseSettingReq, persistingData.Setting)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+	}
+
+	return nil
+}

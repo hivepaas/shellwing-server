@@ -1,0 +1,55 @@
+package userdto
+
+import (
+	vld "github.com/tiendc/go-validator"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/copier"
+)
+
+type ListUserReq struct {
+	Status []base.UserStatus `json:"-" mapstructure:"status"`
+	Role   []base.UserRole   `json:"-" mapstructure:"role"`
+	Search string            `json:"-" mapstructure:"search"`
+
+	Paging basedto.Paging `json:"-"`
+}
+
+func NewListUserReq() *ListUserReq {
+	return &ListUserReq{
+		Paging: basedto.Paging{
+			// Default paging if unset by client
+			Sort: basedto.Orders{{Direction: basedto.DirectionAsc, ColumnName: "full_name"}},
+		},
+	}
+}
+
+func (req *ListUserReq) Validate() hperrors.ValidationErrors {
+	validators := make([]vld.Validator, 0, 10) //nolint:mnd
+	validators = append(validators, basedto.ValidateSlice(req.Status, true, 0,
+		base.AllUserStatuses, "status")...)
+	validators = append(validators, basedto.ValidateSlice(req.Role, true, 0,
+		base.AllUserRoles, "role")...)
+	return hperrors.NewValidationErrors(vld.Validate(validators...))
+}
+
+type ListUserResp struct {
+	Meta *basedto.ListMeta `json:"meta"`
+	Data []*UserResp       `json:"data"`
+}
+
+func TransformUser(user *entity.User) (resp *UserResp, err error) {
+	if err = copier.Copy(&resp, user); err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	resp.MfaTotpActivated = user.TotpSecret != ""
+	resp.Photo = basedto.TransformObjectIcon(user.Photo)
+	return resp, nil
+}
+
+func TransformUsers(users []*entity.User) ([]*UserResp, error) {
+	return basedto.TransformObjectSlice(users, TransformUser) //nolint:wrapcheck
+}

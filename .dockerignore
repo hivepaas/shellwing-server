@@ -1,0 +1,36 @@
+# What the image's build never sees. The builder copies the source whole
+# (COPY . .), so what is listed here cannot reach the image even by a mistake in
+# a later COPY.
+
+# Secrets: a developer's environment, and every private key.
+.env
+.env.*
+.envrc
+**/*.key
+
+# A developer's own: data, builds, editors.
+.appdata
+.gocache
+.temp
+temp
+tmp
+vendor
+mocks
+build
+test-results
+shellwing_server
+dist-dashboard
+web/node_modules
+web/dist
+web/**/*.local
+.idea
+.vscode
+.cursor
+.claude
+.run
+**/.DS_Store
+
+# What the build does not read.
+.git
+.github
+docs

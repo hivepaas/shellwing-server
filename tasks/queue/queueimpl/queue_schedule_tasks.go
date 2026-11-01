@@ -1,0 +1,99 @@
+package queueimpl
+
+import (
+	"context"
+	"time"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+)
+
+const (
+	// missedTaskPeriod is how far back a scan looks for tasks that should have
+	// run and did not: those created while no scheduler ran them - stopped, or
+	// restarting - are run once one does.
+	missedTaskPeriod = 1 * time.Hour
+)
+
+// scanWindow is the times a scan looks between: ahead to the next scan, and
+// back missedTaskPeriod, or to the last scan when that was longer ago. Looking
+// back only to the last scan left a task that missed its run - three
+// deployments, while an update's stop held the scheduler - never run at all.
+func scanWindow(now time.Time, checkInterval time.Duration) (from, to time.Time) {
+	return now.Add(-max(checkInterval, missedTaskPeriod)), now.Add(checkInterval)
+}
+
+func (q *taskQueue) findSchedulingTasks(
+	ctx context.Context,
+) ([]*entity.Task, error) {
+	timeNow := timeutil.NowUTC()
+	scanFrom, scanTo := scanWindow(timeNow, q.config.Tasks.Queue.TaskCheckInterval)
+	tasks, _, err := q.taskRepo.ListByTarget(ctx, q.db, "", nil,
+		bunex.SelectWhereGroup(
+			// Not-started tasks
+			bunex.SelectWhereGroup(
+				bunex.SelectWhere("task.status = ?", base.TaskStatusNotStarted),
+				bunex.SelectWhere("((task.run_at IS NOT NULL AND task.created_at >= ?) "+
+					"OR (task.run_at >= ? AND task.run_at < ?))", scanFrom, scanFrom, scanTo),
+			),
+			// Failed tasks need retry
+			bunex.SelectWhereOrGroup(
+				bunex.SelectWhere("task.status = ?", base.TaskStatusFailed),
+				bunex.SelectWhere("task.retry_at IS NOT NULL"),
+				bunex.SelectWhere("task.retry_at >= ?", scanFrom),
+				bunex.SelectWhere("task.retry_at < ?", scanTo),
+			),
+		),
+	)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if len(tasks) == 0 {
+		return nil, nil
+	}
+
+	scheduleTasks := make([]*entity.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Status == base.TaskStatusFailed && !task.CanRetry() {
+			continue
+		}
+		if task.IsNotStarted() && task.RunAt.Before(timeNow) && !q.shouldScheduleMissedTask(task, tasks, timeNow) {
+			continue
+		}
+		scheduleTasks = append(scheduleTasks, task)
+	}
+
+	return scheduleTasks, nil
+}
+
+func (q *taskQueue) shouldScheduleMissedTask(
+	missedTask *entity.Task,
+	allTasks []*entity.Task,
+	timeNow time.Time,
+) bool {
+	if missedTask.TargetID == "" { // This is a solo task
+		return true
+	}
+	for _, task := range allTasks {
+		if task.TargetID != missedTask.TargetID || task.ID == missedTask.ID {
+			continue
+		}
+		// task and missedTask have the same task target
+		runAt := task.ShouldRunAt()
+		if runAt.IsZero() {
+			continue
+		}
+		// If the task having the same target as the missedTask was executed later
+		if task.IsNotStarted() && runAt.Before(timeNow) && runAt.After(missedTask.RunAt) {
+			return false
+		}
+	}
+	return true
+}
+
+func (q *taskQueue) canScheduleTask(task *entity.Task) bool {
+	return true
+}

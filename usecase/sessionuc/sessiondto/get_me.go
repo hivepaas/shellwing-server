@@ -1,0 +1,37 @@
+package sessiondto
+
+import (
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/usecase/useruc/userdto"
+)
+
+type GetMeReq struct {
+	GetAccesses bool `json:"-" mapstructure:"getAccesses"`
+}
+
+func NewGetMeReq() *GetMeReq {
+	return &GetMeReq{}
+}
+
+type GetMeResp struct {
+	Meta *basedto.Meta  `json:"meta"`
+	Data *GetMeDataResp `json:"data"`
+}
+
+type GetMeDataResp struct {
+	NextStep string                   `json:"nextStep,omitempty"`
+	User     *userdto.UserDetailsResp `json:"user"`
+	// Timezone is the installation's, a zone name such as America/New_York:
+	// what a schedule's hours are read in.
+	Timezone string `json:"timezone"`
+}
+
+func TransformUserDetails(user *entity.User) (resp *userdto.UserDetailsResp, err error) {
+	resp, err = userdto.TransformUserDetails(user)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return resp, nil
+}

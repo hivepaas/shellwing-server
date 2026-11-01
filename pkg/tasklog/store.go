@@ -1,0 +1,286 @@
+package tasklog
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/redact"
+	"github.com/hivepaas/shellwing-server/pkg/redishelper"
+)
+
+const (
+	KB              = 1024
+	DefaultMaxSize  = 64 * KB
+	storeExpiration = 4 * time.Hour
+)
+
+type Store struct {
+	redisClient       redis.UniversalClient
+	Key               string
+	storeLocal        bool
+	storeRemote       bool
+	remoteInitialized atomic.Bool
+	redactor          *redact.Redactor
+	mu                sync.RWMutex
+	frames            []*LogFrame
+	totalSize         int64
+	maxSize           int64
+	onForward         func(context.Context, []*LogFrame) error
+	onFlush           func(ctx context.Context, frames []*LogFrame) error
+}
+
+func (s *Store) GetRedactor() *redact.Redactor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.redactor
+}
+
+func (s *Store) SetRedactor(redactor *redact.Redactor) {
+	s.mu.Lock()
+	s.redactor = redactor
+	s.mu.Unlock()
+}
+
+func (s *Store) UpdateRedactorAddSecrets(secrets []string) {
+	s.mu.Lock()
+	if s.redactor == nil {
+		s.redactor = redact.New(secrets)
+	} else {
+		s.redactor.AddSecrets(secrets)
+	}
+	s.mu.Unlock()
+}
+
+func (s *Store) SetOnFlush(maxSize int64, onFlush func(context.Context, []*LogFrame) error) {
+	s.mu.Lock()
+	s.maxSize = maxSize
+	s.onFlush = onFlush
+	if s.frames == nil {
+		s.frames = make([]*LogFrame, 0, 100) //nolint:mnd
+	}
+	s.mu.Unlock()
+}
+
+func (s *Store) SetOnForward(onForward func(context.Context, []*LogFrame) error) {
+	s.mu.Lock()
+	s.onForward = onForward
+	s.mu.Unlock()
+}
+
+func (s *Store) Add(ctx context.Context, frames ...*LogFrame) error {
+	if len(frames) == 0 {
+		return nil
+	}
+
+	var framesSize int64
+	for _, f := range frames {
+		framesSize += int64(len(f.Data))
+	}
+
+	s.mu.Lock()
+	if s.storeLocal || s.onFlush != nil {
+		s.frames = append(s.frames, frames...)
+	}
+	s.totalSize += framesSize
+	onForward := s.onForward
+	s.mu.Unlock()
+
+	if s.storeRemote {
+		// Store log data in redis
+		err := redishelper.RPush(ctx, s.redisClient, s.Key, frames...)
+		if err != nil {
+			return hperrors.Wrap(err).WithMsgLog("failed to push log frames to redis")
+		}
+
+		if s.remoteInitialized.CompareAndSwap(false, true) {
+			s.redisClient.Expire(ctx, s.Key, storeExpiration)
+		}
+
+		// Notify consumers about the new data
+		_, err = s.redisClient.Publish(ctx, s.Key, buildMessage(CommandNewData)).Result()
+		if err != nil {
+			return hperrors.Wrap(err).WithMsgLog("failed to notify consumers about the new data")
+		}
+	}
+
+	if onForward != nil {
+		if err := onForward(ctx, frames); err != nil {
+			return err
+		}
+	}
+
+	s.mu.Lock()
+	shouldFlush := s.onFlush != nil && s.maxSize > 0 && s.totalSize >= s.maxSize
+	var framesToFlush []*LogFrame
+	if shouldFlush {
+		framesToFlush = s.frames
+		s.frames = make([]*LogFrame, 0, 100) //nolint:mnd
+		s.totalSize = 0
+	}
+	onFlush := s.onFlush
+	s.mu.Unlock()
+
+	if shouldFlush && len(framesToFlush) > 0 && onFlush != nil {
+		if s.storeRemote {
+			_ = s.startOver(ctx)
+		}
+		if err := onFlush(ctx, framesToFlush); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) AddRedacted(ctx context.Context, frames ...*LogFrame) error {
+	s.mu.RLock()
+	r := s.redactor
+	s.mu.RUnlock()
+
+	if r == nil {
+		return s.Add(ctx, frames...)
+	}
+
+	input := make([]string, len(frames))
+	for i, frame := range frames {
+		input[i] = frame.Data
+	}
+
+	input = r.Slice(input)
+	for i, frame := range frames {
+		frame.Data = input[i]
+	}
+	return s.Add(ctx, frames...)
+}
+
+func (s *Store) GetData(ctx context.Context, fromIndex int64) ([]*LogFrame, error) {
+	if s.storeLocal {
+		return s.GetLocalData(ctx, fromIndex)
+	}
+	if s.storeRemote {
+		return s.GetRemoteData(ctx, fromIndex)
+	}
+	return nil, hperrors.NewUnavailable("Log store")
+}
+
+func (s *Store) GetLocalData(ctx context.Context, fromIndex int64) ([]*LogFrame, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if fromIndex >= int64(len(s.frames)) {
+		return nil, nil
+	}
+	return s.frames[fromIndex:], nil
+}
+
+func (s *Store) GetRemoteData(ctx context.Context, fromIndex int64) ([]*LogFrame, error) {
+	frames, err := redishelper.LRange[*LogFrame](ctx, s.redisClient, s.Key, fromIndex, -1)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return frames, nil
+}
+
+func (s *Store) Reset() (err error) {
+	if s.storeRemote {
+		ctx := context.Background()
+		// Send close-msg to consumers
+		_, e := s.redisClient.Publish(ctx, s.Key, buildMessage(CommandClosed)).Result()
+		if e != nil {
+			err = errors.Join(err, hperrors.Wrap(err).WithMsgLog("failed to notify consumers"))
+		}
+		// Delete log data in redis
+		e = redishelper.Del(ctx, s.redisClient, s.Key)
+		if e != nil {
+			err = errors.Join(err, hperrors.Wrap(err).WithMsgLog("failed to remove data from redis"))
+		}
+	}
+	if s.storeLocal {
+		s.mu.Lock()
+		s.frames = make([]*LogFrame, 0, 100) //nolint:mnd
+		s.totalSize = 0
+		s.mu.Unlock()
+	}
+	return err
+}
+
+// Rotate starts the log's list again, once what it holds has been handed on:
+// those following are told to read the new list from its start, not that the
+// log has ended - a task that runs again, a sequence's next step, logs on.
+func (s *Store) Rotate() (err error) {
+	if s.storeRemote {
+		err = s.startOver(context.Background())
+	}
+	if s.storeLocal {
+		s.mu.Lock()
+		s.frames = make([]*LogFrame, 0, 100) //nolint:mnd
+		s.totalSize = 0
+		s.mu.Unlock()
+	}
+	return err
+}
+
+// startOver deletes the list in redis, then tells those following to read the
+// new one from its start: deleted first, or they would read the old one again.
+func (s *Store) startOver(ctx context.Context) error {
+	if err := redishelper.Del(ctx, s.redisClient, s.Key); err != nil {
+		return hperrors.Wrap(err).WithMsgLog("failed to remove data from redis")
+	}
+	if _, err := s.redisClient.Publish(ctx, s.Key, buildMessage(CommandReset)).Result(); err != nil {
+		return hperrors.Wrap(err).WithMsgLog("failed to notify consumers")
+	}
+	return nil
+}
+
+func (s *Store) Close() (err error) {
+	return s.Reset()
+}
+
+func newStore(
+	key string,
+	storeLocal bool,
+	storeRemote bool,
+	redisClient redis.UniversalClient,
+	forwardFunc func(context.Context, []*LogFrame) error,
+) *Store {
+	s := &Store{
+		redisClient: redisClient,
+		Key:         key,
+		storeLocal:  storeLocal,
+		storeRemote: storeRemote,
+		onForward:   forwardFunc,
+	}
+	if storeLocal {
+		s.frames = make([]*LogFrame, 0, 100) //nolint:mnd
+	}
+	return s
+}
+
+func NewRemoteStore(
+	key string,
+	redisClient redis.UniversalClient,
+) *Store {
+	return newStore(key, true, true, redisClient, nil)
+}
+
+func NewLocalStore(
+	key string,
+) *Store {
+	return newStore(key, true, false, nil, nil)
+}
+
+func NewForwardStore(
+	key string,
+	forwardFunc func(context.Context, []*LogFrame) error,
+) *Store {
+	return newStore(key, true, false, nil, forwardFunc)
+}
+
+func NewNullStore() *Store {
+	return &Store{}
+}

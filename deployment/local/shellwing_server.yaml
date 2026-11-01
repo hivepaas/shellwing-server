@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:18-alpine
+    networks:
+      - shellwing_net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U shellwing" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    environment:
+      POSTGRES_DB: shellwing
+      POSTGRES_USER: shellwing
+      POSTGRES_PASSWORD: abc123
+    ports:
+      - target: 5432 # Container port
+        published: 47432 # Host port exposed on the nodes
+        protocol: tcp
+        mode: host
+    volumes:
+      - db:/var/lib/postgresql
+    logging:
+      driver: local
+      options:
+        max-size: 20m
+        compress: "true"
+
+  redis:
+    image: redis:8-alpine
+    command: redis-server --save "" --appendonly no
+    networks:
+      - shellwing_net
+    ports:
+      - target: 6379 # Container port
+        published: 47379 # Host port exposed on the nodes
+        protocol: tcp
+        mode: host
+    logging:
+      driver: local
+      options:
+        max-size: 20m
+        compress: "true"
+
+networks:
+  shellwing_net:
+    driver: overlay
+    attachable: true
+
+volumes:
+  db:
+    driver: local

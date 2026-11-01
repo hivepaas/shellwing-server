@@ -1,0 +1,31 @@
+package emailserviceimpl
+
+import (
+	"context"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+)
+
+func (s *service) GetDefaultSystemEmail(
+	ctx context.Context,
+	db database.IDB,
+) (*entity.Setting, error) {
+	settings, _, err := s.settingRepo.List(ctx, db, entity.NewObjectScopeGlobal(), nil,
+		bunex.SelectWhere("setting.type = ?", base.SettingTypeEmail),
+		bunex.SelectWhere("setting.status = ?", base.SettingStatusActive),
+		bunex.SelectOrder("setting.is_default DESC"),
+		bunex.SelectLimit(2), //nolint
+	)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if (len(settings) == 1 || (len(settings) > 1 && settings[0].Default)) && settings[0].IsActive() {
+		return settings[0], nil
+	}
+	return nil, hperrors.NewNotFound("Email setting").
+		WithMsgLog("default system email setting not found")
+}

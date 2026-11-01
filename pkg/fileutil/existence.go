@@ -1,0 +1,28 @@
+package fileutil
+
+import (
+	"errors"
+	"os"
+
+	"github.com/hivepaas/shellwing-server/pkg/tracerr"
+)
+
+func FileExists(filename string, isFile bool) (bool, error) {
+	if filename == "" {
+		return false, nil
+	}
+	fileInfo, err := os.Stat(filename)
+	if err == nil {
+		return fileInfo.IsDir() == !isFile, nil
+	}
+
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+
+	return false, tracerr.Wrap(err)
+}
+
+func DirExists(dirPath string) (bool, error) {
+	return FileExists(dirPath, false)
+}

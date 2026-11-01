@@ -1,0 +1,87 @@
+package permission
+
+import (
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+)
+
+type AccessCheck interface {
+	IsValid() bool
+	GetBase() *BaseAccessCheck
+	InitSubject(auth *basedto.Auth)
+}
+
+type BaseAccessCheck struct {
+	AccessCheck
+	SubjectType base.SubjectType
+	SubjectID   string
+
+	// The below are mutual exclusive
+	Action base.ActionType
+	AllOf  []base.ActionType
+	AnyOf  []base.ActionType
+}
+
+func (ac *BaseAccessCheck) IsValid() bool {
+	return gofn.If(ac.Action != "", 1, 0)+
+		gofn.If(len(ac.AllOf) > 0, 1, 0)+
+		gofn.If(len(ac.AnyOf) > 0, 1, 0) == 1
+}
+
+func (ac *BaseAccessCheck) GetBase() *BaseAccessCheck {
+	return ac
+}
+
+func (ac *BaseAccessCheck) InitSubject(auth *basedto.Auth) {
+	if ac.SubjectID == "" {
+		ac.SubjectType = base.SubjectTypeUser
+		ac.SubjectID = auth.User.ID
+	}
+}
+
+type ModuleAccessCheck struct {
+	BaseAccessCheck
+
+	Module base.ResourceModule
+}
+
+// CapabilityCheck asks whether a subject holds one capability.
+//
+// Unlike the other checks it takes no action: a capability is a single operation,
+// so there is exactly one action it could be checked for, and the check fills it
+// in itself. Leave BaseAccessCheck's Action, AllOf and AnyOf unset - anything put
+// there is overwritten.
+type CapabilityCheck struct {
+	BaseAccessCheck
+
+	Capability base.ResourceCapability
+}
+
+type GeneralResourceAccessCheck struct {
+	BaseAccessCheck
+
+	Module       base.ResourceModule
+	ResourceType base.ResourceType
+	ResourceID   string
+}
+
+// RevealSubject identifies the secret being asked for.
+//
+// It exists so that a secret which is not a stored setting can be handed out
+// through the same two gates and leave the same record as a setting does.
+type RevealSubject struct {
+	Scope    base.ObjectScopeType
+	ObjectID string
+	Source   base.AuditLogSource
+
+	ResType base.ResourceType
+	ResID   string
+	// ResName is stored as it reads now, because the object may be renamed or
+	// deleted long before anyone comes to read the entry.
+	ResName string
+
+	// Detail is free-form JSON, and must never carry the secret it describes.
+	Detail string
+}

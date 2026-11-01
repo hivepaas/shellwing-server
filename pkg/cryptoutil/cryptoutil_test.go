@@ -1,0 +1,69 @@
+package cryptoutil
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/hivepaas/shellwing-server/base"
+)
+
+func TestPackUnpackSecret(t *testing.T) {
+	secret := "ciphertext"
+	salt := "randomsalt"
+	packed := PackSecret(secret, salt)
+	// Ensure prefix is present
+	assert.True(t, strings.HasPrefix(packed, base.EncryptionSaltPrefix))
+	// Unpack should retrieve original values
+	gotSecret, gotSalt := UnpackSecret(packed)
+	assert.Equal(t, secret, gotSecret)
+	assert.Equal(t, salt, gotSalt)
+}
+
+func TestEncryptDecryptRoundTrip(t *testing.T) {
+	plaintext := []byte("hello world")
+	salt := []byte("fixedsalthere1234567890abcdef")    // 32 bytes for example
+	secret := []byte("supersecretkeysupersecretkey12") // 32 bytes
+
+	// Encrypt
+	ct, err := Encrypt(plaintext, salt, secret)
+	assert.NoError(t, err)
+	// Decrypt
+	pt, err := Decrypt(ct, salt, secret)
+	assert.NoError(t, err)
+	assert.Equal(t, plaintext, pt)
+}
+
+func TestEncryptBase64DecryptBase64(t *testing.T) {
+	// Use a small salt length to keep test fast
+	plaintext := "sample text for encryption"
+	secret := "myverystrongsecret"
+	encrypted, err := EncryptBase64(plaintext, 8, secret)
+	assert.NoError(t, err)
+
+	// Decrypt back
+	decrypted, err := DecryptBase64(encrypted, secret)
+	assert.NoError(t, err)
+	assert.Equal(t, plaintext, decrypted)
+}
+
+func TestEncryptBase64NoSalt(t *testing.T) {
+	plaintext := "nosalttext"
+	secret := "secret"
+	// saltLen <= 0 should return plaintext unchanged
+	got, err := EncryptBase64(plaintext, 0, secret)
+	assert.NoError(t, err)
+	assert.Equal(t, plaintext, got)
+}
+
+func TestSecureCompare(t *testing.T) {
+	assert.True(t, SecureCompare("my_secret_token_123", "my_secret_token_123"))
+	assert.False(t, SecureCompare("my_secret_token_123", "wrong_token"))
+	assert.False(t, SecureCompare("my_secret_token_123", "my_secret_token_124"))
+	assert.False(t, SecureCompare("", "non_empty"))
+	assert.True(t, SecureCompare("", ""))
+
+	assert.True(t, SecureCompareBytes([]byte("token_bytes"), []byte("token_bytes")))
+	assert.False(t, SecureCompareBytes([]byte("token_bytes"), []byte("wrong_bytes")))
+}

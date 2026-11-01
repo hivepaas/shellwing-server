@@ -1,0 +1,204 @@
+package notificationserviceimpl
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/settinghelper"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/service/notificationservice"
+)
+
+func (s *service) NotifyForTaskResult(
+	ctx context.Context,
+	db database.IDB,
+	data *notificationservice.TaskResultNotificationReq,
+) (resp *notificationservice.TaskResultNotificationResp, err error) {
+	resp = &notificationservice.TaskResultNotificationResp{
+		SendTs:      timeutil.NowUTC(),
+		DeliveryMap: make(map[string]bool),
+	}
+	notification := data.Notification
+	if notification == nil {
+		return resp, nil
+	}
+
+	// The same result as the last, told within the minimum interval, is not
+	// told again: decided before the sources are loaded, which is a query.
+	currEvent := gofn.If(data.ActionSucceeded, "success", "failure")
+	minSendingInterval := notification.MinSendInterval.ToDuration()
+	shouldSkipNotif := minSendingInterval > 0 && data.LastEvent == currEvent &&
+		!data.LastSendTs.IsZero() && time.Since(data.LastSendTs) < minSendingInterval
+	if shouldSkipNotif {
+		return resp, nil
+	}
+
+	err = s.loadDefaultNotificationSourceSettings(ctx, db, data)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	var (
+		execFuncs []func(ctx context.Context) error
+		mu        sync.Mutex
+	)
+
+	if notification.ShouldNotifyViaEmail() {
+		execFuncs = append(execFuncs, func(ctx context.Context) error {
+			err := s.notifyForTaskResultViaEmail(ctx, db, data)
+			mu.Lock()
+			resp.DeliveryMap["email"] = err == nil
+			mu.Unlock()
+			return err
+		})
+	}
+	if notification.ShouldNotifyViaSlack() {
+		execFuncs = append(execFuncs, func(ctx context.Context) error {
+			err := s.notifyForTaskResultViaSlack(ctx, db, data)
+			mu.Lock()
+			resp.DeliveryMap["slack"] = err == nil
+			mu.Unlock()
+			return err
+		})
+	}
+	if notification.ShouldNotifyViaDiscord() {
+		execFuncs = append(execFuncs, func(ctx context.Context) error {
+			err := s.notifyForTaskResultViaDiscord(ctx, db, data)
+			mu.Lock()
+			resp.DeliveryMap["discord"] = err == nil
+			mu.Unlock()
+			return err
+		})
+	}
+	if len(execFuncs) == 0 {
+		return resp, nil
+	}
+
+	err = gofn.ExecTasks(ctx, 0, execFuncs...)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return resp, nil
+}
+
+func (s *service) loadDefaultNotificationSourceSettings(
+	ctx context.Context,
+	db database.IDB,
+	data *notificationservice.TaskResultNotificationReq,
+) (err error) {
+	notif := data.Notification
+	var settingTypes []base.SettingType
+	needLoadEmail := false
+	if notif.ViaEmail != nil && notif.ViaEmail.UseDefault {
+		needLoadEmail = true
+		settingTypes = append(settingTypes, base.SettingTypeEmail)
+	}
+	needLoadSlack := notif.ViaSlack != nil && notif.ViaSlack.UseDefault
+	needLoadDiscord := notif.ViaDiscord != nil && notif.ViaDiscord.UseDefault
+	if needLoadSlack || needLoadDiscord {
+		settingTypes = append(settingTypes, base.SettingTypeIMService)
+	}
+
+	if len(settingTypes) == 0 {
+		return nil
+	}
+
+	scope := data.Scope
+	settings, _, err := s.settingRepo.List(ctx, db, scope, nil,
+		bunex.SelectWhereIn("setting.type IN (?)", settingTypes...),
+		bunex.SelectWhere("setting.is_default IS TRUE"),
+	)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	if needLoadEmail {
+		setting, _ := gofn.First(settinghelper.FindSettingsByScope(settings, scope, base.SettingTypeEmail, nil))
+		if setting != nil {
+			data.RefObjects.RefSettings[setting.ID] = setting
+			notif.ViaEmail.Sender.ID = setting.ID
+		}
+	}
+	if needLoadSlack {
+		setting, _ := gofn.First(settinghelper.FindSettingsByScope(settings, scope, base.SettingTypeIMService,
+			new(string(base.IMServiceKindSlack))))
+		if setting != nil {
+			data.RefObjects.RefSettings[setting.ID] = setting
+			notif.ViaSlack.Webhook.ID = setting.ID
+		}
+	}
+	if needLoadDiscord {
+		setting, _ := gofn.First(settinghelper.FindSettingsByScope(settings, scope, base.SettingTypeIMService,
+			new(string(base.IMServiceKindDiscord))))
+		if setting != nil {
+			data.RefObjects.RefSettings[setting.ID] = setting
+			notif.ViaDiscord.Webhook.ID = setting.ID
+		}
+	}
+
+	return nil
+}
+
+func (s *service) notifyForTaskResultViaEmail(
+	ctx context.Context,
+	db database.IDB,
+	data *notificationservice.TaskResultNotificationReq,
+) error {
+	viaEmail := data.Notification.ViaEmail
+	emailSetting := data.RefObjects.RefSettings[viaEmail.Sender.ID]
+	if emailSetting == nil {
+		return hperrors.NewMissing("Sender email account")
+	}
+
+	userMap, err := s.userService.LoadNotificationUsers(ctx, db, viaEmail.ToAllAdmins)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	userEmails := make([]string, 0, len(userMap))
+	for _, user := range userMap {
+		userEmails = append(userEmails, user.Email)
+	}
+	if len(viaEmail.ToAddresses) > 0 {
+		userEmails = gofn.ToSet(append(userEmails, viaEmail.ToAddresses...))
+	}
+	if len(userEmails) == 0 {
+		return nil
+	}
+
+	subject := data.TemplateData.GetTitle()
+	if subject == "" {
+		subject = gofn.If(data.ActionSucceeded, "Action succeeded", "Action failed")
+	}
+
+	err = s.emailSendMsg(ctx, db, emailSetting, userEmails, subject, data.TemplateName, data.TemplateData)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (s *service) notifyForTaskResultViaSlack(
+	ctx context.Context,
+	db database.IDB,
+	data *notificationservice.TaskResultNotificationReq,
+) error {
+	return s.imSendMsg(ctx, db, data.RefObjects.RefSettings[data.Notification.ViaSlack.Webhook.ID],
+		notificationservice.TemplateTypeSlack, data.TemplateName, data.TemplateData)
+}
+
+func (s *service) notifyForTaskResultViaDiscord(
+	ctx context.Context,
+	db database.IDB,
+	data *notificationservice.TaskResultNotificationReq,
+) error {
+	return s.imSendMsg(ctx, db, data.RefObjects.RefSettings[data.Notification.ViaDiscord.Webhook.ID],
+		notificationservice.TemplateTypeDiscord, data.TemplateName, data.TemplateData)
+}

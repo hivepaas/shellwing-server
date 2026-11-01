@@ -1,0 +1,51 @@
+package binobjectuc
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/usecase/binobjectuc/binobjectdto"
+)
+
+const (
+	defaultImageCacheMaxAge = time.Hour * 24 * 365 // a year
+)
+
+func (uc *UC) GetBinObjectData(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *binobjectdto.GetBinObjectDataReq,
+) (*binobjectdto.GetBinObjectDataResp, error) {
+	binObject, err := uc.binObjectRepo.GetByID(ctx, uc.db, req.Type, req.ID,
+		bunex.SelectWhere("bin_object.status = ?", base.BinObjectStatusActive),
+	)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	extraHeaders := map[string]string{}
+
+	switch binObject.Type {
+	case base.BinObjectTypeObjectIcon:
+		extraHeaders["Cache-Control"] = fmt.Sprintf("public, max-age=%v",
+			int(defaultImageCacheMaxAge.Seconds()))
+	default:
+		// Do nothing
+	}
+
+	return &binobjectdto.GetBinObjectDataResp{
+		Data: &binobjectdto.BinObjectDataResp{
+			ContentLength: int64(len(binObject.Data)),
+			ContentType:   binObject.ContentType,
+			Content:       io.NopCloser(bytes.NewReader(binObject.Data)),
+			ExtraHeaders:  extraHeaders,
+		},
+	}, nil
+}

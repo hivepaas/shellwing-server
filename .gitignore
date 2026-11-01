@@ -1,0 +1,21 @@
+/.idea
+# Cursor rules are part of the repo; everything else under .cursor is local.
+/.cursor/*
+!/.cursor/rules/
+!/.cursor/rules/*.mdc
+/.run
+/mocks
+/build/*
+/vendor
+/test-results
+/temp
+/.temp
+/tmp
+/dist-dashboard/*
+/.appdata
+/.gocache
+.env
+.envrc
+.DS_Store
+# License signing keys belong in the secret store, never in the repo.
+*.key

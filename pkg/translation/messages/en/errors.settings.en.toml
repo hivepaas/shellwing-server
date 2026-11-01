@@ -1,0 +1,15 @@
+# Messages for the errors declared in hperrors/errors_settings.go.
+# Adding or removing an error there means editing this file.
+
+# Settings errors
+ERR_SETTING_NOT_FOUND = "Setting '{{.Name}}' is not found"
+ERR_OBJECT_SCOPE_INVALID = "Object scope '{{.Scope}}' is invalid"
+ERR_INHERITED_SETTING_NON_UPDATABLE = "Inherited or imported settings can't be updated"
+ERR_SETTING_TYPE_UNSUPPORTED = "Setting type '{{.Name}}' is not supported"
+ERR_CLOUD_STORAGE_CONN_FAILED = "The bucket could not be reached: {{.Reason}}"
+ERR_IM_SERVICE_UNSUPPORTED = "Instant message service '{{.Name}}' is not supported"
+ERR_DATA_VER_NEWER_THAN_SYSTEM_VER = "The version of data is newer than the system's"
+
+ERR_PASSWORD_NOT_MEET_REQUIREMENTS = "Password does not meet requirements. Must contain at least {{.MinLen}} characters with {{.Lowers}} lowercase, {{.Uppers}} uppercase, {{.Digits}} digit, and {{.Specials}} special characters."
+ERR_PASSWORD_HAS_WEAK_SEQUENCE = "Password contains an easily guessed sequence. Avoid more than {{.MaxRun}} characters in a row that are sequential (1234), repeated (aaaa), or side by side on the keyboard (qwer)."
+ERR_PASSWORD_TOO_SIMILAR_TO_PREVIOUS = "Password is too similar to the current one. They must not share more than {{.MaxRun}} characters in a row, in either direction."

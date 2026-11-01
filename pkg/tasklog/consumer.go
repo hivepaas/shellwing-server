@@ -1,0 +1,125 @@
+package tasklog
+
+import (
+	"context"
+	"errors"
+	"sync"
+
+	"github.com/redis/go-redis/v9"
+
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/batchrecvchan"
+	"github.com/hivepaas/shellwing-server/pkg/redishelper"
+	"github.com/hivepaas/shellwing-server/pkg/safego"
+)
+
+type Consumer struct {
+	redisClient redis.UniversalClient
+	key         string
+}
+
+func NewConsumer(
+	key string,
+	redisClient redis.UniversalClient,
+) *Consumer {
+	return &Consumer{
+		key:         key,
+		redisClient: redisClient,
+	}
+}
+
+func (c *Consumer) StartConsuming(
+	ctx context.Context,
+	options batchrecvchan.Options,
+) (<-chan []*LogFrame, func() error, error) {
+	batchChan := batchrecvchan.NewChan[*LogFrame](options)
+	pubSub := c.redisClient.Subscribe(ctx, c.key)
+	var closeOnce sync.Once
+	var closeErr error
+
+	closeAllFunc := func() error { //nolint:contextcheck
+		closeOnce.Do(func() {
+			closeErr = errors.Join(
+				pubSub.Unsubscribe(context.Background()), // `ctx` may expire at this point
+				pubSub.Close(),
+				batchChan.Close(),
+			)
+		})
+		return closeErr
+	}
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				safego.LogPanic("tasklog.consume", r)
+			}
+			_ = closeAllFunc()
+		}()
+
+		frameIndex := int64(0)
+
+		// Query all current logs
+		frames, _ := c.getData(ctx, &frameIndex)
+		batchChan.Send(frames...)
+
+		for msg := range pubSub.Channel() {
+			cmd, _ := parseMessage(msg.Payload)
+			fetch, stop := follow(cmd, &frameIndex)
+			if stop {
+				return
+			}
+			if !fetch {
+				continue
+			}
+			frames, err := c.getData(ctx, &frameIndex)
+			if err != nil {
+				batchChan.Send(&LogFrame{
+					Type: LogTypeErr,
+					Data: "failed to get log data: " + err.Error(),
+				})
+				continue
+			}
+			batchChan.Send(frames...)
+		}
+	}()
+
+	return batchChan.Receiver(), closeAllFunc, nil
+}
+
+func (c *Consumer) getData(
+	ctx context.Context,
+	frameIndex *int64,
+) (frames []*LogFrame, err error) {
+	frames, err = redishelper.LRange[*LogFrame](ctx, c.redisClient, c.key, *frameIndex, -1)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	*frameIndex += int64(len(frames))
+	return frames, nil
+}
+
+func (c *Consumer) GetAllData(
+	ctx context.Context,
+) ([]*LogFrame, error) {
+	frameIndex := int64(0)
+	frames, err := c.getData(ctx, &frameIndex)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return frames, nil
+}
+
+// follow is what a follower does on a command: read on from frameIndex, read
+// the new list from its start, or stop.
+func follow(cmd Command, frameIndex *int64) (fetch, stop bool) {
+	switch cmd {
+	case CommandNewData:
+		return true, false
+	case CommandReset:
+		*frameIndex = 0
+		return true, false
+	case CommandClosed:
+		return false, true
+	}
+	return false, false
+}

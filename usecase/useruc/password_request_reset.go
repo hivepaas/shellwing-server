@@ -1,0 +1,91 @@
+package useruc
+
+import (
+	"context"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/config"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/auditdetail"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/service/emailservice"
+	"github.com/hivepaas/shellwing-server/usecase/useruc/userdto"
+)
+
+// RequestResetPassword this api handles request of resetting password from admins by
+// returning a reset link to the admin or sending it to the target user's email address.
+func (uc *UC) RequestResetPassword(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *userdto.RequestResetPasswordReq,
+) (*userdto.RequestResetPasswordResp, error) {
+	if auth.User.IsDemoUser() {
+		return nil, hperrors.Wrap(hperrors.ErrUserDemoUnauthorized)
+	}
+
+	user, err := uc.userRepo.GetByID(ctx, uc.db, req.ID,
+		bunex.SelectExcludeColumns(entity.UserDefaultExcludeColumns...),
+	)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	if user.SecurityOption == base.UserSecurityEnforceSSO {
+		return nil, hperrors.Wrap(hperrors.ErrActionNotAllowed).
+			WithMsgLog("user authentication method is enforce-sso")
+	}
+
+	token, err := uc.userService.GeneratePasswordResetToken(user.ID)
+	if err != nil {
+		return nil, hperrors.Wrap(err).WithMsgLog("failed to generate password reset token")
+	}
+
+	resetLink := config.Current().DashboardPasswordResetURL(user.ID, token)
+
+	// Before the link goes anywhere. Whether it was mailed to the account or
+	// handed back to the caller is the point of the entry: a link returned in the
+	// response is an admin holding the means to sign in as somebody else, which
+	// is a different act from asking the system to mail them a reset.
+	err = uc.recordUserChange(ctx, uc.db, auth, base.AuditLogTypeUserUpdate,
+		auditSectionPasswordResetRequest, user, auditdetail.New().
+			Set("emailSent", req.SendResettingEmail).
+			Set("linkReturnedToActor", !req.SendResettingEmail))
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	if req.SendResettingEmail {
+		emailSetting, err := uc.emailService.GetDefaultSystemEmail(ctx, uc.db)
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+
+		email, err := emailSetting.AsEmail()
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+
+		err = uc.emailService.SendMailPasswordReset(ctx, uc.db, &emailservice.EmailDataPasswordReset{
+			BaseTemplateData: emailservice.BaseTemplateData{
+				Email:      email,
+				Recipients: []string{user.Email},
+				Subject:    "[shellwing] Password reset",
+			},
+			ResetPasswordLink: resetLink,
+		})
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+
+		// When send the link via email, we don't return it via the response
+		resetLink = ""
+	}
+
+	return &userdto.RequestResetPasswordResp{
+		Data: &userdto.RequestResetPasswordDataResp{
+			ResetPasswordLink: resetLink,
+		},
+	}, nil
+}

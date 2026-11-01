@@ -1,0 +1,51 @@
+package oauthuc
+
+import (
+	"context"
+
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/usecase/settings"
+	"github.com/hivepaas/shellwing-server/usecase/settings/oauthuc/oauthdto"
+)
+
+func (uc *UC) UpdateOAuth(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *oauthdto.UpdateOAuthReq,
+) (*oauthdto.UpdateOAuthResp, error) {
+	req.Type = currentSettingType
+	req.Auth = auth
+	oauth := req.ToEntity()
+	_, err := uc.UpdateSetting(ctx, &req.UpdateSettingReq, &settings.UpdateSettingData{
+		VerifyingName:   req.Name,
+		VerifyingRefIDs: oauth.GetRefObjectIDs(),
+		PrepareUpdate: func(
+			ctx context.Context,
+			db database.Tx,
+			data *settings.UpdateSettingData,
+			pData *settings.PersistingSettingData,
+		) error {
+			pData.Setting.Kind = gofn.Coalesce(string(req.Kind), pData.Setting.Kind)
+			current, err := data.Setting.AsOAuth()
+			if err != nil {
+				return hperrors.Wrap(err)
+			}
+			req.KeepMaskedSecrets(oauth, current)
+
+			err = pData.Setting.SetData(oauth)
+			if err != nil {
+				return hperrors.Wrap(err)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &oauthdto.UpdateOAuthResp{}, nil
+}

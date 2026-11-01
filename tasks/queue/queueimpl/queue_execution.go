@@ -1,0 +1,263 @@
+package queueimpl
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/entity/cacheentity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/infra/gocronqueue"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/redishelper"
+	"github.com/hivepaas/shellwing-server/pkg/safego"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/pkg/transaction"
+	"github.com/hivepaas/shellwing-server/tasks/queue"
+)
+
+const (
+	taskDefaultTimeout      = 3 * time.Hour
+	taskInfoCacheExp        = 24 * time.Hour
+	taskControlCheckTimeout = 7 * time.Second
+)
+
+func (q *taskQueue) RegisterExecutor(typ base.TaskType, execFunc queue.TaskExecFunc) {
+	if q.rawExecutors == nil {
+		q.rawExecutors = make(map[base.TaskType]queue.TaskExecFunc)
+	}
+	q.rawExecutors[typ] = execFunc
+
+	if !q.isWorkerMode() {
+		return
+	}
+	if q.taskExecutorMap == nil {
+		q.taskExecutorMap = make(map[base.TaskType]gocronqueue.TaskExecFunc, 10) //nolint:mnd
+	}
+	q.taskExecutorMap[typ] = func(taskID string, payload string) time.Time {
+		return q.executeTask(context.Background(), taskID, payload, execFunc)
+	}
+}
+
+func (q *taskQueue) ExecuteTaskType(
+	ctx context.Context,
+	db database.Tx,
+	typ base.TaskType,
+	execData *queue.TaskExecData,
+) error {
+	execFunc, exists := q.rawExecutors[typ]
+	if !exists {
+		return hperrors.Wrap(hperrors.ErrNotFound).WithMsgLog("executor for task type %s not found", typ)
+	}
+	return execFunc(ctx, db, execData)
+}
+
+//nolint:gocognit
+func (q *taskQueue) executeTask(
+	ctx context.Context,
+	taskID string,
+	_ string,
+	executorFunc func(context.Context, database.Tx, *queue.TaskExecData) error,
+) (rescheduleAt time.Time) {
+	var taskData *queue.TaskExecData
+	err := transaction.Execute(ctx, q.db, func(db database.Tx) (err error) {
+		task, err := q.loadTask(ctx, db, taskID)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+		if task == nil {
+			return nil
+		}
+
+		taskData = &queue.TaskExecData{
+			Task: task,
+		}
+		ctx, cancel := context.WithTimeout(ctx, resolveTaskTimeout(task))
+		defer cancel()
+		taskData.CancelFunc = cancel
+
+		// Put task to in-progress state
+		task.StartedAt = timeutil.NowUTC()
+		if task.RunAt.IsZero() {
+			task.RunAt = task.StartedAt
+		}
+		if task.Status == base.TaskStatusFailed {
+			task.Config.Retry++
+		}
+
+		// Check for control commands from users and other processing
+		if !task.Config.ControlDisabled {
+			go q.taskControlCheck(ctx, taskData)
+		}
+
+		// Mark the task as `in-progress` by inserting a new record in to redis
+		taskInfo := &cacheentity.TaskInfo{
+			ID:              task.ID,
+			Status:          base.TaskStatusInProgress,
+			ControlDisabled: task.Config.ControlDisabled,
+			StartedAt:       task.StartedAt,
+		}
+		err = q.taskInfoRepo.Set(ctx, task.ID, taskInfo, taskInfoCacheExp)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		var execErr error
+		defer func() {
+			taskData.TaskDone = true
+			if err != nil {
+				return
+			}
+			rescheduleAt = settleTask(task, taskData, execErr, timeutil.NowUTC())
+			// Post execution event
+			if taskData.OnEndTxFunc != nil {
+				taskData.OnEndTxFunc()
+			}
+			// Remove canceled status from context
+			ctx = context.WithoutCancel(ctx)
+			// Delete data in cache
+			_ = q.taskInfoRepo.Del(ctx, task.ID)
+			// Save tasks in DB
+			err = q.taskRepo.Update(ctx, db, task)
+		}()
+		defer safego.RecoverTo(&execErr) // Make sure we catch panic before the above defer
+
+		execErr = executorFunc(ctx, db, taskData)
+		return err //nolint:wrapcheck
+	}, transaction.NoRetry())
+	if err != nil {
+		return rescheduleAt
+	}
+
+	q.runPostTx(taskData)
+	return rescheduleAt
+}
+
+// runPostTx runs what an execution left for after its transaction. It runs on
+// the scheduler's goroutine, past the recover around the execution, where a
+// panic takes the whole process down with it: it is contained and logged.
+func (q *taskQueue) runPostTx(taskData *queue.TaskExecData) {
+	if taskData == nil || taskData.OnPostTxFunc == nil {
+		return
+	}
+	defer safego.RecoverWithLogger(q.logger, "task post-tx: "+string(taskData.Task.Type))
+	taskData.OnPostTxFunc()
+}
+
+// settleTask is where an execution leaves its task: canceled, whatever error
+// its work returned for being cut; failed, to be retried or not; run again at
+// once, when it asked to Continue; or done. It returns when the task is to run
+// next, zero for not at all.
+func settleTask(
+	task *entity.Task,
+	taskData *queue.TaskExecData,
+	execErr error,
+	timeNow time.Time,
+) (rescheduleAt time.Time) {
+	task.EndedAt = timeNow
+	switch {
+	case taskData.TaskCanceled:
+		task.Status = base.TaskStatusCanceled
+		task.RetryAt = time.Time{}
+	case execErr != nil:
+		task.Status = base.TaskStatusFailed
+		if taskData.TaskNonRetryable {
+			task.Config.MaxRetry = task.Config.Retry
+		}
+		if task.CanRetry() {
+			task.RetryAt = task.EndedAt.Add(task.NextRetryDelay())
+			rescheduleAt = task.RetryAt
+		} else {
+			task.RetryAt = time.Time{}
+		}
+		_ = task.AddRun(&entity.TaskRun{
+			StartedAt:  task.StartedAt,
+			EndedAt:    task.EndedAt,
+			Error:      hperrors.GetErrorDetail(execErr, ""),
+			StackTrace: hperrors.GetErrorStackTrace(execErr),
+		})
+	case taskData.Continued():
+		task.Status = base.TaskStatusNotStarted
+		task.RunAt = timeNow
+		task.RetryAt = time.Time{}
+		rescheduleAt = timeNow
+	default:
+		task.Status = base.TaskStatusDone
+	}
+	return rescheduleAt
+}
+
+func (q *taskQueue) loadTask(
+	ctx context.Context,
+	db database.IDB,
+	taskID string,
+) (*entity.Task, error) {
+	task, err := q.taskRepo.GetByID(ctx, db, nil, "", taskID,
+		bunex.SelectWhereIn("task.status IN (?)", base.TaskStatusNotStarted, base.TaskStatusFailed),
+		bunex.SelectFor("UPDATE OF task SKIP LOCKED"),
+		bunex.SelectRelation("TargetJob"),
+	)
+	if err != nil {
+		if errors.Is(err, hperrors.ErrNotFound) { // task not found, it's not error
+			return nil, nil
+		}
+		return nil, hperrors.Wrap(err)
+	}
+
+	// Task's target object must be active
+	shouldCancelTask := false
+	if task.Type == base.TaskTypeSchedJobExec {
+		shouldCancelTask = task.TargetJob == nil || !task.TargetJob.IsActive()
+	}
+	if shouldCancelTask {
+		task.Status = base.TaskStatusCanceled
+		task.UpdatedAt = timeutil.NowUTC()
+		_ = q.taskRepo.Update(ctx, db, task, bunex.UpdateColumns("status", "updated_at"))
+		return nil, nil
+	}
+
+	// Task not allow retrying
+	if task.Status == base.TaskStatusFailed && !task.CanRetry() {
+		return nil, nil
+	}
+	return task, nil
+}
+
+func (q *taskQueue) taskControlCheck(
+	ctx context.Context,
+	taskData *queue.TaskExecData,
+) {
+	key := fmt.Sprintf("task:%s:ctrl", taskData.Task.ID)
+	defer func() {
+		if r := recover(); r != nil {
+			safego.LogPanic("taskQueue.taskControlCheck", r)
+		}
+		_ = redishelper.Del(ctx, q.redisClient, key)
+	}()
+
+	for {
+		if taskData.TaskDone || taskData.TaskCanceled || ctx.Err() != nil {
+			return
+		}
+		taskControl, err := redishelper.BLPopOne[*cacheentity.TaskControl](ctx, q.redisClient,
+			key, taskControlCheckTimeout)
+		if err != nil {
+			continue
+		}
+		cmd := taskControl.Cmd
+		if taskData.OnCommandFunc != nil {
+			taskData.OnCommandFunc(cmd)
+		}
+		if !taskData.TaskNonCancelable && cmd == base.TaskCommandCancel {
+			// Marked before the work is cut: what it returns for being cut
+			// settles a canceled task, not a failed one.
+			taskData.TaskCanceled = true
+			taskData.CancelFunc()
+			return
+		}
+	}
+}

@@ -1,0 +1,37 @@
+package devhelperhandler
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	_ "github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/usecase/devhelperuc/devhelperdto"
+)
+
+// ExecuteCmd Executes a command
+// @Summary Executes a command
+// @Description Executes a command
+// @Tags    dev_helper
+// @Produce json
+// @Id      devExecuteCmd
+// @Param   body body devhelperdto.ExecuteCmdReq true "request data"
+// @Success 200 {object} devhelperdto.ExecuteCmdResp
+// @Failure 400 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /dev-helper/exec-cmd [post]
+func (h *Handler) ExecuteCmd(ctx *gin.Context) {
+	req := devhelperdto.NewExecuteCmdReq()
+	if err := h.ParseAndValidateJSONBody(ctx, req); err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+
+	resp, err := h.devHelperUC.ExecuteCmd(h.RequestCtx(ctx), req)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, resp)
+}

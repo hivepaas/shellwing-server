@@ -1,0 +1,237 @@
+package sessionuc
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/config"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/entity/cacheentity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/failbackoff"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/usecase/sessionuc/sessiondto"
+)
+
+const (
+	// The first 10 wrong passwords in a row are free. From there each further 10
+	// doubles the wait, starting at 2 minutes and measured from the most recent
+	// failure - so 10 failures cost 4 minutes, 20 cost 8, and so on.
+	maxPasswordFailsInARow       = 10
+	passwordCheckDurationEachRow = 2 * time.Minute
+	loginAttemptExp              = 4 * time.Hour
+	mfaPasscodeExp               = 2 * time.Minute
+
+	// dummyHashForTimingAttack is a pre-calculated valid Argon2id hash used to equalize execution time
+	// when a non-existent username is checked.
+	dummyHashForTimingAttack = "MTIzNDU2Nzg5MA== AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+)
+
+// passwordBackoff makes each wrong password cost more than the last, counted
+// against the account rather than the address the guess came from.
+var passwordBackoff = failbackoff.Policy{
+	MaxFailsInARow: maxPasswordFailsInARow,
+	Step:           passwordCheckDurationEachRow,
+}
+
+const (
+	nextStepMfaInput = "NextMfa"
+	nextStepMfaSetup = "NextMfaSetup"
+)
+
+func (uc *UC) LoginWithPassword(
+	ctx context.Context,
+	req *sessiondto.LoginWithPasswordReq,
+) (resp *sessiondto.LoginWithPasswordResp, err error) {
+	dbUser, err := uc.userRepo.GetByUsernameOrEmail(ctx, uc.db, req.Username, req.Username)
+	if err != nil {
+		if errors.Is(err, hperrors.ErrNotFound) {
+			// Perform dummy password verification to prevent user enumeration via timing attack
+			_ = uc.userService.VerifyPassword(&entity.User{Password: dummyHashForTimingAttack}, req.Password)
+
+			// Nothing the caller typed goes into the record - see
+			// recordLoginDenied. The address it came from is on the entry anyway,
+			// and a run of these from one address is what somebody reads them for.
+			if e := uc.recordLoginDenied(ctx, nil, auditMethodPassword, auditReasonUnknownUser); e != nil {
+				return nil, hperrors.Wrap(e)
+			}
+		}
+		return nil, uc.wrapSensitiveError(err)
+	}
+
+	err = uc.passwordCheck(ctx, req, dbUser)
+	if err != nil {
+		// Only a refusal is recorded as one: see loginRefusalReason.
+		if reason := loginRefusalReason(err); reason != "" {
+			if e := uc.recordLoginDenied(ctx, dbUser, auditMethodPassword, reason); e != nil {
+				return nil, hperrors.Wrap(e)
+			}
+		}
+		return nil, uc.wrapSensitiveError(err)
+	}
+
+	// The right password opens nothing for an account that may not sign in, and
+	// no second factor is asked of it: refused here, and recorded as refused.
+	if err = signInRefusal(dbUser); err != nil {
+		if e := uc.recordLoginDenied(ctx, dbUser, auditMethodPassword, loginRefusalReason(err)); e != nil {
+			return nil, hperrors.Wrap(e)
+		}
+		return nil, err
+	}
+
+	passcodeRequired, err := uc.passcodeRequired(ctx, dbUser, req.TrustedDeviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	// When passcode is required, builds token for using in the next step
+	if passcodeRequired {
+		mfaToken, err := uc.startPasscodeStep(ctx, dbUser, req.TrustedDeviceID)
+		if err != nil {
+			return nil, err
+		}
+		return &sessiondto.LoginWithPasswordResp{
+			Data: &sessiondto.LoginWithPasswordDataResp{
+				NextStep: nextStepMfaInput,
+				MFAType:  base.MFATypeTOTP,
+				MFAToken: mfaToken,
+			},
+		}, nil
+	}
+
+	// Create a new session as login succeeds
+	sessionData, err := uc.createSession(ctx, &sessiondto.BaseCreateSessionReq{
+		User:   dbUser,
+		Method: auditMethodPassword,
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	var nextStep string
+	if dbUser.SecurityOption == base.UserSecurityPassword2FA && dbUser.TotpSecret == "" {
+		nextStep = nextStepMfaSetup
+	}
+
+	return &sessiondto.LoginWithPasswordResp{
+		Data: &sessiondto.LoginWithPasswordDataResp{
+			Session:  sessionData,
+			NextStep: nextStep,
+		},
+	}, nil
+}
+
+func (uc *UC) passwordCheck(
+	ctx context.Context,
+	req *sessiondto.LoginWithPasswordReq,
+	dbUser *entity.User,
+) error {
+	attempt, err := uc.allowPasswordLoginAtTheMoment(ctx, dbUser)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	err = uc.userService.VerifyPassword(dbUser, req.Password)
+	_ = uc.savePasswordCheckingStatus(ctx, dbUser, attempt, err == nil)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+// allowPasswordLoginAtTheMoment checks if user can do password login at the moment.
+// If user made too many login failures, they need to wait for some time before they can try again.
+//
+// The wait is measured from the last failure, so pacing the guesses out no longer
+// avoids it - it used to be measured from the first, which meant only a burst was
+// ever slowed down. See failbackoff.Policy.Wait.
+func (uc *UC) allowPasswordLoginAtTheMoment(
+	ctx context.Context,
+	dbUser *entity.User,
+) (*cacheentity.LoginAttempt, error) {
+	if dbUser.SecurityOption == base.UserSecurityEnforceSSO {
+		return nil, hperrors.Wrap(hperrors.ErrSSORequired)
+	}
+
+	attempt, err := uc.cacheLoginAttemptRepo.Get(ctx, dbUser.ID)
+	if err != nil {
+		if errors.Is(err, hperrors.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, hperrors.Wrap(err)
+	}
+	if wait := passwordBackoff.Wait(attempt, timeutil.NowUTC()); wait > 0 {
+		return nil, hperrors.Wrap(hperrors.ErrTooManyLoginFailures).
+			WithParam("WaitDuration", int(wait.Seconds()))
+	}
+	return attempt, nil
+}
+
+// savePasswordCheckingStatus saves password checking status including the number of failures
+// and timestamp of the first fail.
+func (uc *UC) savePasswordCheckingStatus(
+	ctx context.Context,
+	dbUser *entity.User,
+	attempt *cacheentity.LoginAttempt,
+	success bool,
+) error {
+	if success {
+		if attempt != nil {
+			err := uc.cacheLoginAttemptRepo.Del(ctx, dbUser.ID)
+			if err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+		return nil
+	}
+
+	// Save the failed check count and move the timestamps the backoff reads
+	attempt = passwordBackoff.Fail(attempt, timeutil.NowUTC())
+	err := uc.cacheLoginAttemptRepo.Set(ctx, dbUser.ID, attempt, loginAttemptExp)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (uc *UC) wrapSensitiveError(err error) error {
+	// Due to security reason, we don't want to send the real error to user for the cases
+	// user not found and password mismatched.
+	if errors.Is(err, hperrors.ErrNotFound) || errors.Is(err, hperrors.ErrMismatch) ||
+		errors.Is(err, hperrors.ErrValueInvalid) {
+		// Notes that the `cause` only shows up in dev env, not in production
+		return hperrors.Wrap(hperrors.ErrLoginInputInvalid).WithCause(err)
+	}
+	return hperrors.Wrap(err)
+}
+
+// passcodeRequired reports whether a user who proved the first factor - a password, or a provider's sign-in - still
+// owes the second: one who set up an authenticator app, unless signing in on a device they trusted within the
+// configured period.
+func (uc *UC) passcodeRequired(ctx context.Context, user *entity.User, trustedDeviceID string) (bool, error) {
+	if user.TotpSecret == "" {
+		return false, nil
+	}
+	if trustedDeviceID == "" {
+		return true, nil
+	}
+	trustedDevice, err := uc.loginTrustedDeviceRepo.GetByUserAndDevice(ctx, uc.db, user.ID, trustedDeviceID)
+	if err != nil && !errors.Is(err, hperrors.ErrNotFound) {
+		return false, hperrors.Wrap(err)
+	}
+	trusted := trustedDevice != nil &&
+		timeutil.NowUTC().Sub(trustedDevice.UpdatedAt) < config.Current().Session.DeviceTrustedPeriod
+	return !trusted, nil
+}
+
+// startPasscodeStep is the token the passcode is signed in with (LoginWithPasscode), its attempts counted afresh.
+func (uc *UC) startPasscodeStep(ctx context.Context, user *entity.User, trustedDeviceID string) (string, error) {
+	mfaToken, err := uc.userService.GenerateMFAToken(user.ID, base.MFATypeTOTP, trustedDeviceID)
+	if err != nil {
+		return "", hperrors.Wrap(err)
+	}
+	_ = uc.cacheMfaPasscodeRepo.Set(ctx, user.ID, &cacheentity.MFAPasscode{Attempts: 0}, mfaPasscodeExp)
+	return mfaToken, nil
+}

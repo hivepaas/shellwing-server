@@ -1,0 +1,39 @@
+package emaildto
+
+import (
+	vld "github.com/tiendc/go-validator"
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/hperrors"
+)
+
+type TestSendMailReq struct {
+	*EmailBaseReq
+	TestRecipient string `json:"testRecipient"`
+	TestSubject   string `json:"testSubject"`
+	TestContent   string `json:"testContent"`
+}
+
+func NewTestSendMailReq() *TestSendMailReq {
+	return &TestSendMailReq{}
+}
+
+func (req *TestSendMailReq) ModifyRequest() error {
+	// NOTE: make sure req.Name is not empty to not fail the validation
+	req.Name = gofn.Coalesce(req.Name, "x")
+	req.TestSubject = gofn.Coalesce(req.TestSubject, "test subject")
+	req.TestContent = gofn.Coalesce(req.TestContent, "test content")
+	return nil
+}
+
+// Validate implements interface basedto.ReqValidator
+func (req *TestSendMailReq) Validate() hperrors.ValidationErrors {
+	validators := make([]vld.Validator, 0, 10) //nolint:mnd
+	validators = append(validators, req.validate("")...)
+	return hperrors.NewValidationErrors(vld.Validate(validators...))
+}
+
+type TestSendMailResp struct {
+	Meta *basedto.Meta `json:"meta"`
+}

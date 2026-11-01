@@ -1,0 +1,121 @@
+name: 'Go Source Check'
+
+# The web app has its own workflows (web.yml, web-osv-scanner.yml): a change
+# under web/ alone does not run this one. A tag runs it whatever it holds.
+on:
+  push:
+    branches: ['*']
+    tags: ['v*']
+    paths-ignore: ['web/**']
+  pull_request:
+    branches: ['*']
+    paths-ignore: ['web/**']
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.27.x"]
+        include:
+          - go: 1.27.x
+            latest: true
+
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Load cached dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Setup Dependencies
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.14.0
+
+      - name: Lint
+        run: make lint-local
+
+      - name: Test
+        run: make test-cover
+
+  # docs/openapi/swagger.json is the API's contract, and its generation is
+  # deterministic: regenerating it changes nothing unless a change was committed
+  # without `make gen-swag`.
+  openapi:
+    name: OpenAPI spec is current
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.x
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install swag
+        # The version the devtools image runs, so that CI and `make gen-swag` agree.
+        run: |
+          version=$(grep -o 'swag/v2/cmd/swag@[^ ]*' tools/docker/Dockerfile | cut -d@ -f2)
+          go install "github.com/swaggo/swag/v2/cmd/swag@${version}"
+
+      # swag lists the packages with `go list` and takes anything it writes to
+      # stderr for a failure: on a cold module cache, its "go: downloading".
+      - name: Download the modules
+        run: go mod download
+
+      - name: Regenerate the spec
+        run: SWAG_BIN="$(go env GOPATH)/bin/swag" ./tools/swag/swag.sh
+
+      - name: Compare with the committed spec
+        run: |
+          if ! git diff --exit-code --stat docs/openapi; then
+            echo "::error file=docs/openapi/swagger.json::not current: run make gen-swag and commit the result"
+            exit 1
+          fi
+
+  govulncheck:
+    name: Govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: '1.27.x'
+          go-package: './...'
+
+  trivy:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # A HIGH or CRITICAL flaw with a fix fails the build. One reviewed and
+      # accepted goes in .trivyignore, with why and until when.
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.75.0'
+          scan-type: 'fs'
+          scan-ref: '.'
+          # web/yarn.lock is OSV-Scanner's (web-osv-scanner.yml).
+          skip-dirs: 'vendor,.temp,tmp,temp,web'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          trivyignores: '.trivyignore'
+

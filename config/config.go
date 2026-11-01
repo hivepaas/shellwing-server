@@ -1,0 +1,302 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"time"
+	// The zone names a timezone is given by, built in: an image without a
+	// zoneinfo directory still knows them.
+	_ "time/tzdata"
+
+	"github.com/jinzhu/configor"
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/pkg/tracerr"
+)
+
+const (
+	configFileName = "config.toml"
+	defaultAppPath = "/var/lib/shellwing"
+	// envPrefix namespaces the env names configor derives on its own. Every scalar
+	// setting here carries an explicit `env:"SHW_..."` tag, which configor uses
+	// verbatim, so the prefix only ever applies to the nested section structs
+	// (SHW_DB, SHW_SESSION, ...) that can be fed a whole YAML blob.
+	//
+	// It cannot simply be dropped: with an empty ENVPrefix configor falls back to
+	// "Configor" and starts honoring CONFIGOR_ENV_PREFIX, and with "-" it drops
+	// the prefix entirely and would read bare names like DB or CACHE - both worse
+	// than an explicit namespace of our own.
+	envPrefix = "SHW"
+)
+
+const (
+	PlatformLocal  = "local"
+	PlatformRemote = "remote"
+
+	EnvDev  = "development"
+	EnvBeta = "beta"
+	EnvProd = "production"
+)
+
+var (
+	ErrConfigFileUnset    = errors.New("config file unset")
+	ErrConfigFileNotFound = errors.New("config file not found")
+	ErrAppSecretUnset     = errors.New("app secret is not configured")
+	ErrTimezoneInvalid    = errors.New("timezone is not a zone name")
+)
+
+const (
+	RunModeApp          = "app"
+	RunModeWorker       = "worker"
+	RunModeAppAndWorker = "app+worker"
+)
+
+var (
+	current atomic.Pointer[Config]
+
+	// loadMu serializes the load paths. It guards lastConfigFile, which a reload
+	// reads to find the file the first load came from, and it keeps two reloads -
+	// a SIGHUP and an API call arriving together - from interleaving.
+	loadMu         sync.Mutex
+	lastConfigFile string
+)
+
+// Current returns the configuration in force. It is nil until LoadConfig runs.
+//
+// A function rather than a variable, because the config is replaced wholesale on
+// every reload while the rest of the process is reading it. One atomic load hands
+// the caller a coherent snapshot: they see all of the old config or all of the
+// new one, never half of each. Nothing mutates the value behind the pointer - the
+// writers publish a copy, see SaveAppSecret - so a snapshot stays valid for as
+// long as its holder keeps it.
+//
+// Read it once per operation and pass the result down rather than calling this in
+// a loop: two calls either side of a reload are two different configurations.
+func Current() *Config {
+	return current.Load()
+}
+
+// SetCurrent installs a configuration.
+//
+// The loader calls it, and tests call it to stand up a config without a file on
+// disk. Nothing else should: a config swapped in mid-request is a config half the
+// request has already read.
+func SetCurrent(cfg *Config) {
+	current.Store(cfg)
+}
+
+type Config struct {
+	Env      string `toml:"env" env:"SHW_ENV"`
+	Platform string `toml:"platform" env:"SHW_PLATFORM" default:"remote"`
+	RunMode  string `toml:"run_mode" env:"SHW_RUN_MODE" default:"app+worker"`
+
+	RootDomain string `toml:"root_domain" env:"SHW_ROOT_DOMAIN"`
+	AppDomain  string `toml:"app_domain" env:"SHW_APP_DOMAIN"`
+	// WebBaseURL is where the web app is served when that is not where the API is, such as
+	// http://localhost:4100 while developing. The links the server sends - in emails, after a sign-in -
+	// point there. Empty, the web app is served beside the API, at BaseURL.
+	WebBaseURL string `toml:"web_base_url" env:"SHW_WEB_BASE_URL"`
+	// Secret is the key every stored secret is encrypted with. It has no default
+	// on purpose: a well-known one would mean every zero-config install shares a
+	// publicly known key. See ensureAppSecret.
+	Secret  string `toml:"secret" env:"SHW_APP_SECRET"`
+	AppPath string `toml:"app_path" env:"SHW_APP_PATH" default:"/var/lib/shellwing"`
+	// Timezone is the installation's, a zone name such as America/New_York:
+	// what a schedule's hours are read in - a cron expression's, the time of
+	// day a system job runs at. The installer asks for it. Times are kept in
+	// UTC whatever it is. A change takes effect on a start, not on a reload.
+	// See Location.
+	Timezone string `toml:"timezone" env:"SHW_TIMEZONE" default:"UTC"`
+	location *time.Location
+
+	Users      Users      `toml:"users"`
+	HTTPServer HTTPServer `toml:"http_server"`
+	DB         DB         `toml:"db"`
+	Cache      Cache      `toml:"cache"`
+	Session    Session    `toml:"session"`
+	Tasks      Tasks      `toml:"tasks"`
+	Security   Security   `toml:"security"`
+
+	DevMode DevMode `toml:"dev_mode"`
+}
+
+// Location is the installation's timezone, as Timezone names it.
+func (cfg *Config) Location() *time.Location {
+	if cfg.location == nil {
+		return time.UTC
+	}
+	return cfg.location
+}
+
+func (cfg *Config) IsDevEnv() bool   { return cfg.Env == EnvDev }
+func (cfg *Config) IsLocalEnv() bool { return cfg.Platform == PlatformLocal }
+func (cfg *Config) IsBetaEnv() bool  { return cfg.Env == EnvBeta }
+func (cfg *Config) IsProdEnv() bool  { return cfg.Env == EnvProd }
+
+func (cfg *Config) BaseURL() string {
+	if cfg.Platform == PlatformLocal {
+		return fmt.Sprintf("http://%s:%v", cfg.AppDomain, cfg.HTTPServer.Port)
+	}
+	return "https://" + cfg.AppDomain
+}
+
+/// LOAD CONFIG
+
+func LoadConfig() (*Config, error) {
+	loadMu.Lock()
+	defer loadMu.Unlock()
+
+	if cfg := current.Load(); cfg != nil {
+		return cfg, nil
+	}
+	cfg, err := loadConfig("")
+	if err != nil {
+		return nil, tracerr.Wrap(err)
+	}
+	current.Store(cfg)
+	timeutil.SetLocation(cfg.Location())
+	return cfg, nil
+}
+
+// resolveAppPath returns the app directory, where both the config file and the
+// managed settings live. It has to read the environment directly: the value is
+// needed to find the very file the config is loaded from.
+func resolveAppPath() string {
+	if appPath := os.Getenv("SHW_APP_PATH"); appPath != "" {
+		return appPath
+	}
+	return defaultAppPath
+}
+
+func loadConfig(configFile string) (*Config, error) {
+	config := &Config{}
+	appPath := resolveAppPath()
+
+	if configFile == "" {
+		configFile = filepath.Join(appPath, configFileName)
+
+		// #nosec G703
+		if _, err := os.Stat(configFile); errors.Is(err, os.ErrNotExist) {
+			configFile = os.Getenv("SHW_CONFIG_FILE")
+			if configFile == "" {
+				return nil, fmt.Errorf("%w: SHW_CONFIG_FILE must be defined", ErrConfigFileUnset)
+			}
+		}
+	}
+
+	if _, err := os.Stat(configFile); os.IsNotExist(err) { // #nosec G703
+		return nil, fmt.Errorf("%w: %s", ErrConfigFileNotFound, configFile)
+	}
+
+	// The environment is read from our own snapshot rather than from the process,
+	// which is cleared below so user-supplied commands cannot read the secrets out
+	// of it. Without this a reload would see an empty environment.
+	snapshotEnv()
+	restoreEnv()
+	defer clearEnv()
+	if err := applyFirstBootEnv(appPath); err != nil {
+		return nil, tracerr.Wrap(err)
+	}
+
+	err := configor.New(&configor.Config{ENVPrefix: envPrefix}).Load(config, configFile)
+	if err != nil {
+		return config, tracerr.Wrap(err)
+	}
+
+	// Applied last so a setting the app rotates for itself wins over a stale value
+	// still present in the environment or the base config file.
+	managed, err := loadManagedSettings(appPath)
+	if err != nil {
+		return config, tracerr.Wrap(err)
+	}
+	managed.applyTo(config)
+
+	// Turn on dev mode for dev/local env
+	config.DevMode.Enabled = config.IsDevEnv() || config.IsLocalEnv()
+
+	if err := ensureAppSecret(config, appPath); err != nil {
+		return config, tracerr.Wrap(err)
+	}
+	// A name that is no zone stops the start rather than reading as UTC: the
+	// jobs would run at hours nobody chose.
+	location, err := time.LoadLocation(config.Timezone)
+	if err != nil || config.Timezone == "" || config.Timezone == "Local" {
+		return config, fmt.Errorf("%w: SHW_TIMEZONE %q - a name such as UTC or America/New_York",
+			ErrTimezoneInvalid, config.Timezone)
+	}
+	config.location = location
+
+	// A misconfigured URL stops the start too: somebody would otherwise meet it first, as a broken link in an email.
+	if err := validateWebBaseURL(config.WebBaseURL); err != nil {
+		return config, err
+	}
+
+	lastConfigFile = configFile
+	return config, nil
+}
+
+func ReloadConfig() (*Config, error) {
+	loadMu.Lock()
+	defer loadMu.Unlock()
+
+	newConfig, err := loadConfig(lastConfigFile)
+	if err != nil {
+		return nil, tracerr.Wrap(err)
+	}
+
+	// TODO: validate then apply a certain portion of the new config
+
+	keepStartingTimezone(newConfig, current.Load())
+	current.Store(newConfig)
+	return newConfig, nil
+}
+
+// keepStartingTimezone gives a reloaded config the timezone the process
+// started with: the schedules are read in it from the start, so a change takes
+// effect on the next start.
+func keepStartingTimezone(reloaded, started *Config) {
+	if started == nil {
+		return
+	}
+	reloaded.Timezone, reloaded.location = started.Timezone, started.location
+}
+
+// appSecretLen is the length in bytes of a generated app secret, before hex
+// encoding doubles it.
+const appSecretLen = 32
+
+// ensureAppSecret makes sure encryption is always on.
+//
+// Storing credentials unencrypted is not an option the operator gets: the most
+// realistic way they leak is a database dump leaving the host - which this app
+// does on purpose, backing up to cloud storage - and a dump is only useless to
+// whoever finds it if the values in it are encrypted.
+//
+// Outside development the secret has to be configured explicitly. Generating one
+// here would be unsafe with more than one replica: replicas do not share the app
+// volume, so each would invent a different key and encrypt rows the others cannot
+// read. Development gets a generated one so a fresh checkout just runs.
+func ensureAppSecret(config *Config, appPath string) error {
+	if config.Secret != "" {
+		return nil
+	}
+
+	if !config.IsDevEnv() {
+		return fmt.Errorf("%w: SHW_APP_SECRET must be set, e.g. %s",
+			ErrAppSecretUnset, gofn.RandTokenAsHex(appSecretLen))
+	}
+
+	config.Secret = gofn.RandTokenAsHex(appSecretLen)
+	err := updateManagedSettings(appPath, func(settings *ManagedSettings) {
+		settings.Secret = config.Secret
+	})
+	if err != nil {
+		return fmt.Errorf("failed to persist the generated app secret: %w", err)
+	}
+	return nil
+}

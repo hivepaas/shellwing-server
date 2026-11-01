@@ -1,0 +1,124 @@
+package redishelper
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	"github.com/hivepaas/shellwing-server/hperrors"
+)
+
+func HGet[T any](
+	ctx context.Context,
+	cmder redis.Cmdable,
+	key, field string,
+) (value T, err error) {
+	data, err := cmder.HGet(ctx, key, field).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return value, hperrors.NewNotFound(key).WithCause(err)
+		}
+		return value, hperrors.Wrap(err)
+	}
+	return unmarshalStr[T](data)
+}
+
+func HMGet[T any](
+	ctx context.Context,
+	cmder redis.Cmdable,
+	key string,
+	fields []string,
+) (values []T, err error) {
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	data, err := cmder.HMGet(ctx, key, fields...).Result()
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return unmarshalSlice[T](data...)
+}
+
+func HGetAll[T any](
+	ctx context.Context,
+	cmder redis.Cmdable,
+	key string,
+) (map[string]T, error) {
+	data, err := cmder.HGetAll(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, hperrors.NewNotFound(key).WithCause(err)
+		}
+		return nil, hperrors.Wrap(err)
+	}
+	return unmarshalStrMap[T](data)
+}
+
+func HSet[T any](
+	ctx context.Context,
+	cmder redis.Cmdable,
+	key, field string,
+	value T,
+	expiration time.Duration,
+) error {
+	return HMSet(ctx, cmder, key, []string{field}, []T{value}, expiration)
+}
+
+func HMSet[T any](
+	ctx context.Context,
+	cmder redis.Cmdable,
+	key string,
+	fields []string,
+	values []T,
+	expiration time.Duration,
+) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	data, err := marshalKVSlices(fields, values)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	if _, err := cmder.HSet(ctx, key, data...).Result(); err != nil {
+		return hperrors.Wrap(err)
+	}
+	if expiration > 0 {
+		if _, err := cmder.HExpire(ctx, key, expiration, fields...).Result(); err != nil {
+			return hperrors.Wrap(err)
+		}
+	}
+	return nil
+}
+
+func HDel(
+	ctx context.Context,
+	cmder redis.Cmdable,
+	key string,
+	fields ...string,
+) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	_, err := cmder.HDel(ctx, key, fields...).Result()
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func HExpire(
+	ctx context.Context,
+	cmder redis.Cmdable,
+	key string,
+	exp time.Duration,
+	fields ...string,
+) error {
+	_, err := cmder.HExpire(ctx, key, exp, fields...).Result()
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}

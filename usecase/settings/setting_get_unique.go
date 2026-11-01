@@ -1,0 +1,117 @@
+package settings
+
+import (
+	"context"
+	"errors"
+
+	vld "github.com/tiendc/go-validator"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+)
+
+type GetUniqueSettingReq struct {
+	BaseSettingReq
+	RevealSecrets bool `json:"-" mapstructure:"revealSecrets"`
+}
+
+func (req *GetUniqueSettingReq) Validate() (validators []vld.Validator) {
+	return
+}
+
+type GetUniqueSettingResp struct {
+	Data            *entity.Setting
+	RefObjects      *entity.RefObjects
+	SecretsRevealed bool
+}
+
+type GetUniqueSettingData struct {
+	BaseSettingData
+
+	ExtraLoadOpts []bunex.SelectQueryOption
+}
+
+func (uc *BaseUC) GetUniqueSetting(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *GetUniqueSettingReq,
+	data *GetUniqueSettingData,
+) (_ *GetUniqueSettingResp, err error) {
+	db := uc.DB
+
+	if err = uc.ScopeService.LoadObjectScopeData(ctx, db, req.Scope); err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	setting, err := uc.SettingRepo.GetSingle(ctx, db, req.Scope, req.Type, false,
+		data.ExtraLoadOpts...)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if setting != nil {
+		setting.CurrentObjectID = req.Scope.ScopeObjectID()
+	}
+
+	secretsRevealed := false
+	if req.RevealSecrets {
+		secretsRevealed, err = uc.revealSecrets(ctx, db, auth, req.Scope, req.RevealSecrets, setting)
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+	}
+
+	refObjects := entity.NewRefObjects()
+	err = uc.SettingService.LoadRefObjectsSkipMissing(ctx, db, &refObjects, req.Scope, false, setting)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &GetUniqueSettingResp{
+		Data:            setting,
+		RefObjects:      refObjects,
+		SecretsRevealed: secretsRevealed,
+	}, nil
+}
+
+func (uc *BaseUC) GetUniqueSettingOrEmpty(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *GetUniqueSettingReq,
+	data *GetUniqueSettingData,
+) (resp *GetUniqueSettingResp, err error) {
+	for i := range 2 { //nolint:mnd
+		resp, err = uc.GetUniqueSetting(ctx, auth, req, data)
+		if err == nil {
+			return resp, nil
+		}
+		if errors.Is(err, hperrors.ErrNotFound) {
+			if i == 0 {
+				if e := uc.SettingInitService.InitDefaults(ctx, uc.DB); e != nil {
+					return nil, hperrors.Wrap(err)
+				}
+				continue
+			}
+			if i == 1 {
+				timeNow := timeutil.NowUTC()
+				resp = &GetUniqueSettingResp{
+					Data: &entity.Setting{
+						Scope:     req.Scope.ScopeType,
+						ObjectID:  req.Scope.ScopeObjectID(),
+						Type:      req.Type,
+						Status:    base.SettingStatusActive,
+						CreatedAt: timeNow,
+						UpdatedAt: timeNow,
+					},
+					RefObjects: entity.NewRefObjects(),
+				}
+				return resp, nil
+			}
+		}
+		break
+	}
+	return nil, hperrors.Wrap(err)
+}

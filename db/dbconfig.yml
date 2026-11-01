@@ -1,0 +1,11 @@
+main:
+  dialect: postgres
+  datasource: postgres://${SHW_DB_USER}:${SHW_DB_PASSWORD}@${SHW_DB_HOST}:${SHW_DB_PORT}/${SHW_DB_DB_NAME}?sslmode=disable
+  dir: db/migrations
+  table: migrations
+
+development:
+  dialect: postgres
+  datasource: postgres://shellwing:abc123@localhost:47432/shellwing?sslmode=disable
+  dir: db/migrations
+  table: migrations

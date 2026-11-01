@@ -1,0 +1,149 @@
+package useruc
+
+import (
+	"context"
+	"errors"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
+	"github.com/hivepaas/shellwing-server/pkg/totp"
+	"github.com/hivepaas/shellwing-server/pkg/transaction"
+	"github.com/hivepaas/shellwing-server/service/userservice"
+	"github.com/hivepaas/shellwing-server/usecase/useruc/userdto"
+)
+
+func (uc *UC) CompleteUserSignup(
+	ctx context.Context,
+	req *userdto.CompleteUserSignupReq,
+) (*userdto.CompleteUserSignupResp, error) {
+	err := transaction.Execute(ctx, uc.db, func(db database.Tx) error {
+		signupData := &userSignupData{}
+		err := uc.loadUserSignupData(ctx, db, req, signupData)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		persistingData := &persistingUserSignupData{}
+		if err = uc.preparePersistingUserSignupData(req, signupData, persistingData); err != nil {
+			return err
+		}
+
+		if err = uc.persistUserSignupData(ctx, db, persistingData); err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		// Attributed to the account itself: the invite token is possession of the
+		// address, and there is nobody else to name. See authOfUser.
+		return uc.recordUserChange(ctx, db, authOfUser(signupData.User),
+			base.AuditLogTypeUserCreate, auditSectionSignup, signupData.User, nil)
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &userdto.CompleteUserSignupResp{}, nil
+}
+
+type userSignupData struct {
+	User *entity.User
+}
+
+type persistingUserSignupData struct {
+	persistingUserProfileData
+}
+
+func (uc *UC) loadUserSignupData(
+	ctx context.Context,
+	db database.IDB,
+	req *userdto.CompleteUserSignupReq,
+	data *userSignupData,
+) error {
+	inviteToken, err := uc.userService.ParseUserInviteToken(req.InviteToken)
+	if err != nil {
+		return hperrors.Wrap(hperrors.ErrTokenInvalid).WithCause(err)
+	}
+
+	user, err := uc.userRepo.GetByID(ctx, db, inviteToken.UserID,
+		bunex.SelectFor("UPDATE OF \"user\""),
+		bunex.SelectRelationIf(req.Photo.IsChanged(), "PhotoData"),
+	)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
+	if user.Status != base.UserStatusPending {
+		return hperrors.Wrap(hperrors.ErrActionNotAllowed).
+			WithMsgLog("user '%s' not require signup", user.Email)
+	}
+	data.User = user
+
+	// If username changes, need to verify the uniqueness
+	if req.Username != "" && req.Username != user.Username {
+		conflictUser, err := uc.userRepo.GetByUsername(ctx, db, req.Username)
+		if err != nil && !errors.Is(err, hperrors.ErrNotFound) {
+			return hperrors.Wrap(err)
+		}
+		if conflictUser != nil {
+			return hperrors.Wrap(hperrors.ErrUsernameUnavailable).
+				WithMsgLog("user '%s' already exists", req.Username)
+		}
+	}
+
+	return nil
+}
+
+func (uc *UC) preparePersistingUserSignupData(
+	req *userdto.CompleteUserSignupReq,
+	signupData *userSignupData,
+	persistingData *persistingUserSignupData,
+) error {
+	timeNow := timeutil.NowUTC()
+	user := signupData.User
+
+	user.UpdatedAt = timeNow
+	user.Username = req.Username
+	user.FullName = req.FullName
+	user.Status = base.UserStatusActive
+
+	if user.SecurityOption == base.UserSecurityEnforceSSO {
+		user.Password = ""
+	} else {
+		if req.Password == "" {
+			return hperrors.NewArgumentInvalid("Password").
+				WithMsgLog("password is required")
+		}
+		err := uc.userService.ChangePassword(user, req.Password, userservice.SkipCheckingCurrentPassword)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+	}
+	if user.SecurityOption == base.UserSecurityPassword2FA {
+		if req.Passcode == "" || req.MFATotpSecret == "" {
+			return hperrors.NewArgumentInvalid("Passcode").
+				WithMsgLog("passcode and totp secret are required")
+		}
+		if !totp.VerifyPasscode(req.Passcode, req.MFATotpSecret) {
+			return hperrors.Wrap(hperrors.ErrPasscodeMismatched)
+		}
+		user.TotpSecret = req.MFATotpSecret
+	}
+
+	if req.Photo.IsChanged() {
+		uc.preparePersistingUserPhoto(req.Photo, user, timeNow, &persistingData.persistingUserProfileData)
+	}
+
+	persistingData.UpdatingUser = user
+	return nil
+}
+
+func (uc *UC) persistUserSignupData(
+	ctx context.Context,
+	db database.IDB,
+	persistingData *persistingUserSignupData,
+) error {
+	return uc.persistUserProfileData(ctx, db, &persistingData.persistingUserProfileData)
+}

@@ -1,0 +1,16 @@
+# ==========================================
+# Global Default Owner
+# ==========================================
+
+# ==========================================
+# Critical Security & CI/CD Pipelines
+# ==========================================
+/.github/       @tiendc
+
+# ==========================================
+# Configuration & Deployments
+# ==========================================
+/Makefile       @tiendc
+/config/        @tiendc
+/deployment/    @tiendc
+/scripts/       @tiendc

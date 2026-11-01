@@ -1,0 +1,70 @@
+package useruc
+
+import (
+	"context"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/usecase/useruc/userdto"
+)
+
+func (uc *UC) ListUser(
+	ctx context.Context,
+	auth *basedto.Auth,
+	req *userdto.ListUserReq,
+) (*userdto.ListUserResp, error) {
+	listOpts := []bunex.SelectQueryOption{
+		bunex.SelectExcludeColumns(entity.UserDefaultExcludeColumns...),
+	}
+	if len(req.Status) > 0 {
+		listOpts = append(listOpts,
+			bunex.SelectWhereIn("\"user\".status IN (?)", req.Status...),
+		)
+	}
+	if len(req.Role) > 0 {
+		listOpts = append(listOpts,
+			bunex.SelectWhereIn("\"user\".role IN (?)", req.Role...),
+		)
+	}
+	// Filter by search keyword
+	if req.Search != "" {
+		keyword := bunex.MakeLikeOpStr(req.Search, true)
+		listOpts = append(listOpts,
+			bunex.SelectWhereGroup(
+				bunex.SelectWhere("\"user\".email ILIKE ?", keyword),
+				bunex.SelectWhereOr("\"user\".username ILIKE ?", keyword),
+				bunex.SelectWhereOr("\"user\".full_name ILIKE ?", keyword),
+				bunex.SelectWhereOr("\"user\".position ILIKE ?", keyword),
+				bunex.SelectWhereOr("\"user\".status = ?", keyword),
+				bunex.SelectWhereOr("\"user\".security_option ILIKE ?", keyword),
+			),
+		)
+	}
+
+	allowedAllIDs, allowedIDs := auth.AllowedUsers(nil)
+	if !allowedAllIDs {
+		if len(allowedIDs) == 0 { // return empty result
+			return &userdto.ListUserResp{Meta: basedto.NewEmptyListMeta()}, nil
+		}
+		listOpts = append(listOpts,
+			bunex.SelectWhereIn("\"user\".id IN (?)", allowedIDs...),
+		)
+	}
+
+	users, paging, err := uc.userRepo.List(ctx, uc.db, &req.Paging, listOpts...)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	resp, err := userdto.TransformUsers(users)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	return &userdto.ListUserResp{
+		Meta: &basedto.ListMeta{Page: paging},
+		Data: resp,
+	}, nil
+}

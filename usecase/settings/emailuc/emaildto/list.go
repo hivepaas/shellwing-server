@@ -1,0 +1,51 @@
+package emaildto
+
+import (
+	vld "github.com/tiendc/go-validator"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/usecase/settings"
+)
+
+type ListEmailReq struct {
+	settings.ListSettingReq
+}
+
+func NewListEmailReq() *ListEmailReq {
+	return &ListEmailReq{
+		ListSettingReq: settings.ListSettingReq{
+			Paging: basedto.Paging{
+				// Default paging if unset by client
+				Sort: basedto.Orders{{Direction: basedto.DirectionAsc, ColumnName: "name"}},
+			},
+		},
+	}
+}
+
+func (req *ListEmailReq) Validate() hperrors.ValidationErrors {
+	validators := make([]vld.Validator, 0, 10) //nolint:mnd
+	validators = append(validators, req.ListSettingReq.Validate()...)
+	return hperrors.NewValidationErrors(vld.Validate(validators...))
+}
+
+type ListEmailResp struct {
+	Meta *basedto.ListMeta `json:"meta"`
+	Data []*EmailResp      `json:"data"`
+}
+
+func TransformEmails(
+	settings []*entity.Setting,
+	refObjects *entity.RefObjects,
+) (resp []*EmailResp, err error) {
+	resp = make([]*EmailResp, 0, len(settings))
+	for _, setting := range settings {
+		item, err := TransformEmail(setting, refObjects)
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+		resp = append(resp, item)
+	}
+	return resp, nil
+}

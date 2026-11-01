@@ -1,0 +1,110 @@
+package emaildto
+
+import (
+	vld "github.com/tiendc/go-validator"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/copier"
+	"github.com/hivepaas/shellwing-server/usecase/settings"
+)
+
+type GetEmailReq struct {
+	settings.GetSettingReq
+}
+
+func NewGetEmailReq() *GetEmailReq {
+	return &GetEmailReq{}
+}
+
+func (req *GetEmailReq) Validate() hperrors.ValidationErrors {
+	validators := make([]vld.Validator, 0, 10) //nolint:mnd
+	validators = append(validators, req.GetSettingReq.Validate()...)
+	return hperrors.NewValidationErrors(vld.Validate(validators...))
+}
+
+type GetEmailResp struct {
+	Meta *basedto.Meta `json:"meta"`
+	Data *EmailResp    `json:"data"`
+}
+
+type EmailResp struct {
+	*settings.BaseSettingResp
+	Kind         base.EmailKind `json:"kind"`
+	SMTP         *EmailSMTPResp `json:"smtp,omitempty"`
+	HTTP         *EmailHTTPResp `json:"http,omitempty"`
+	SecretMasked bool           `json:"secretMasked,omitempty"`
+}
+
+type EmailSMTPResp struct {
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+	Password    string `json:"password"`
+	SSL         bool   `json:"ssl"`
+}
+
+func (resp *EmailSMTPResp) CopyPassword(field entity.EncryptedField) error {
+	resp.Password = field.String()
+	return nil
+}
+
+type EmailHTTPResp struct {
+	Endpoint     string                        `json:"endpoint"`
+	Method       base.HTTPMethod               `json:"method"`
+	ContentType  string                        `json:"contentType"`
+	Headers      map[string]string             `json:"headers"`
+	FieldMapping *entity.EmailHTTPFieldMapping `json:"fieldMapping"`
+	Username     string                        `json:"username"`
+	DisplayName  string                        `json:"displayName"`
+	Password     string                        `json:"password"`
+}
+
+func (resp *EmailHTTPResp) CopyPassword(field entity.EncryptedField) error {
+	resp.Password = field.String()
+	return nil
+}
+
+type EmailGmailAPIKeyResp struct {
+	User   string `json:"user"`
+	APIKey string `json:"apiKey"`
+}
+
+func (resp *EmailGmailAPIKeyResp) CopyPassword(field entity.EncryptedField) error {
+	resp.APIKey = field.String()
+	return nil
+}
+
+func TransformEmail(
+	setting *entity.Setting,
+	_ *entity.RefObjects,
+) (resp *EmailResp, err error) {
+	config := setting.MustAsEmail()
+	if err = copier.Copy(&resp, config); err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	resp.Kind = base.EmailKind(setting.Kind)
+
+	resp.BaseSettingResp, err = settings.TransformSettingBase(setting)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	switch {
+	case config.SMTP != nil:
+		resp.SecretMasked = config.SMTP.Password.IsEncrypted() || resp.Inherited
+		if resp.SecretMasked {
+			resp.SMTP.Password = basedto.MaskedSecret
+		}
+	case config.HTTP != nil:
+		resp.SecretMasked = config.HTTP.Password.IsEncrypted() || resp.Inherited
+		if resp.SecretMasked {
+			resp.HTTP.Password = basedto.MaskedSecret
+		}
+	}
+
+	return resp, nil
+}

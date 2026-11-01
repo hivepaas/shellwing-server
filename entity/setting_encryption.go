@@ -1,0 +1,202 @@
+package entity
+
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/datakey"
+	"github.com/hivepaas/shellwing-server/pkg/reflectutil"
+)
+
+type EncryptedField struct {
+	encrypted string
+	decrypted string
+}
+
+func (s *EncryptedField) MarshalJSON() (res []byte, err error) {
+	// Encryption is not optional. This used to fall back to writing s.encrypted
+	// when no key was configured, which for a field holding a plaintext value
+	// wrote an empty string and lost it without any error. Refuse instead:
+	// startup installs a data key, so reaching this is a bug.
+	encrypted, err := s.encrypt()
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return reflectutil.UnsafeStrToBytes(gofn.StringWrap(encrypted, "\"")), nil
+}
+
+// UnmarshalJSON reads the field as JSON text rather than as the bytes between
+// the quotes.
+//
+// The difference only shows on a value that carries an escape: a ciphertext has
+// none, but a plaintext one does the moment it holds a newline, a quote or a
+// backslash - a configuration file delivered as a secret, a PEM key pasted into
+// a request. Stripping the quotes and keeping the rest left "\n" in the value as
+// two characters, and what reached the container was one long line.
+func (s *EncryptedField) UnmarshalJSON(data []byte) error {
+	text := strings.TrimSpace(reflectutil.UnsafeBytesToStr(data))
+	if text == "" || text == "null" {
+		s.Set("")
+		return nil
+	}
+	if value, isText := jsonString(data); isText {
+		s.Set(value)
+		return nil
+	}
+	// Not JSON text - a number, a bare token - which is not something this field
+	// is ever given. Keep what the old reader did rather than lose the value.
+	s.Set(gofn.StringUnwrap(text, "\""))
+	return nil
+}
+
+// jsonString reports whether data is JSON text, and what it says.
+func jsonString(data []byte) (string, bool) {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return "", false
+	}
+	return value, true
+}
+
+func (s *EncryptedField) String() string {
+	if s.decrypted != "" {
+		return s.decrypted
+	}
+	if s.encrypted != "" {
+		return base.MaskedSecret
+	}
+	return ""
+}
+
+func (s *EncryptedField) IsEmpty() bool {
+	return s.encrypted == "" && s.decrypted == ""
+}
+
+func (s *EncryptedField) IsEncrypted() bool {
+	return s.encrypted != "" && s.decrypted == ""
+}
+
+func (s *EncryptedField) GetPlain() (string, error) {
+	decrypted, err := s.decrypt()
+	if err != nil {
+		return "", hperrors.Wrap(err)
+	}
+	return decrypted, nil
+}
+
+func (s *EncryptedField) GetEncrypted() (string, error) {
+	encrypted, err := s.encrypt()
+	if err != nil {
+		return "", hperrors.Wrap(err)
+	}
+	return encrypted, nil
+}
+
+func (s *EncryptedField) Set(value string) {
+	if isEncryptedValue(value) {
+		s.encrypted = value
+		s.decrypted = ""
+	} else {
+		s.decrypted = value
+		s.encrypted = ""
+	}
+}
+
+func (s *EncryptedField) Equal(enc *EncryptedField) (bool, error) {
+	v1, err := s.GetPlain()
+	if err != nil {
+		return false, hperrors.Wrap(err)
+	}
+	v2, err := enc.GetPlain()
+	if err != nil {
+		return false, hperrors.Wrap(err)
+	}
+	return v1 == v2, nil
+}
+
+func (s *EncryptedField) encrypt() (string, error) {
+	if s.encrypted != "" {
+		return s.encrypted, nil
+	}
+	if s.decrypted == "" {
+		return "", nil // nothing to encrypt, the field is unset
+	}
+	if base.IsMaskedSecret(s.decrypted) {
+		// The placeholder an API response carries in place of a stored secret.
+		// Reaching here means a request echoed it back and the handler did not
+		// resolve it against the stored value - see the KeepMaskedSecrets methods
+		// on the request types. Encrypting it would replace a real secret with
+		// eight stars, silently and beyond recovery, so refuse instead. This is a
+		// backstop: it catches the cases a handler forgot, and every setting type
+		// that gains a secret later without anyone remembering this exists.
+		return "", hperrors.NewArgumentInvalid("secret")
+	}
+	key := datakey.Active()
+	if key == nil {
+		return "", hperrors.NewMissing("Data encryption key")
+	}
+	encrypted, err := key.Seal(s.decrypted)
+	if err != nil {
+		return "", hperrors.Wrap(err)
+	}
+	s.encrypted = encrypted
+	return encrypted, nil
+}
+
+func (s *EncryptedField) decrypt() (string, error) {
+	if s.decrypted != "" {
+		return s.decrypted, nil
+	}
+	if s.encrypted == "" {
+		return "", nil // nothing to decrypt, the field is unset
+	}
+	key := datakey.Active()
+	if key == nil {
+		return "", hperrors.NewMissing("Data encryption key")
+	}
+	decrypted, err := key.Open(s.encrypted)
+	if err != nil {
+		return "", hperrors.Wrap(err)
+	}
+	s.decrypted = decrypted
+	return decrypted, nil
+}
+
+// isEncryptedValue reports whether a stored value is ciphertext rather than a
+// plaintext one that still has to be encrypted.
+func isEncryptedValue(value string) bool {
+	for _, prefix := range base.AllEncryptionPrefixes {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// Reencrypt drops the cached ciphertext so the next marshal encrypts the value
+// again with whatever key is current.
+//
+// Marshaling normally reuses the ciphertext the value was loaded with, which is
+// exactly what re-saving an unrelated setting should do. Rotating the app secret
+// is the one case that has to bypass it.
+func (s *EncryptedField) Reencrypt() error {
+	if s.IsEmpty() {
+		return nil
+	}
+	plain, err := s.GetPlain()
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	s.Set(plain)
+	return nil
+}
+
+func NewEncryptedField(value string) EncryptedField {
+	resp := EncryptedField{}
+	resp.Set(value)
+	return resp
+}

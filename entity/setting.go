@@ -1,0 +1,229 @@
+package entity
+
+import (
+	"encoding/json"
+	"reflect"
+	"sort"
+	"time"
+
+	"github.com/tiendc/gofn"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/reflectutil"
+	"github.com/hivepaas/shellwing-server/pkg/ulid"
+)
+
+var (
+	SettingUpsertingConflictCols = []string{"id"}
+	SettingUpsertingUpdateCols   = []string{"scope", "object_id", "ref_id", "type", "kind", "status", "name", "size",
+		"data", "inheritable", "is_default", "version", "update_ver",
+		"updated_at", "expire_at", "deleted_at"}
+)
+
+type SettingParser interface {
+	New() SettingData
+}
+
+var (
+	settingParserMap = make(map[base.SettingType]SettingParser, 30) //nolint:mnd
+)
+
+// AllParsedSettingTypes lists every setting type that has a registered parser,
+// which is every type that can appear as stored data.
+//
+// It exists so that code outside this package can be checked for completeness
+// against the real list rather than against a copy of it - the spec exporter
+// asserts that each of these has both an export policy and a block name.
+func AllParsedSettingTypes() []base.SettingType {
+	types := make([]base.SettingType, 0, len(settingParserMap))
+	for typ := range settingParserMap {
+		types = append(types, typ)
+	}
+	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] })
+	return types
+}
+
+//nolint:unparam
+func registerSettingParser(typ base.SettingType, parser SettingParser) bool {
+	settingParserMap[typ] = parser
+	return true
+}
+
+type Setting struct {
+	ID          string               `bun:",pk" json:"id"`
+	Scope       base.ObjectScopeType `json:"scope"`
+	ObjectID    string               `bun:",nullzero" json:"objectId,omitempty"`
+	RefID       string               `bun:",nullzero" json:"refId,omitempty"`
+	Type        base.SettingType     `json:"type"`
+	Kind        string               `bun:",nullzero" json:"kind,omitempty"`
+	Status      base.SettingStatus   `json:"status"`
+	Name        string               `bun:",nullzero" json:"name"`
+	Size        int64                `bun:",nullzero" json:"size"`
+	Data        string               `bun:",nullzero" json:"data"`
+	Inheritable bool                 `json:"inheritable,omitempty"`
+	Default     bool                 `bun:"is_default" json:"isDefault,omitempty"`
+	Version     int                  `json:"version"`
+	UpdateVer   int                  `json:"updateVer"`
+
+	CreatedAt time.Time `bun:",default:current_timestamp" json:"createdAt"`
+	UpdatedAt time.Time `bun:",default:current_timestamp" json:"updatedAt"`
+	ExpireAt  time.Time `bun:",nullzero" json:"expireAt,omitempty"`
+	DeletedAt time.Time `bun:",soft_delete,nullzero" json:"deletedAt,omitzero"`
+
+	Tags        []*Tag     `bun:"rel:has-many,join:id=object_id" json:"-"`
+	Tasks       []*Task    `bun:"rel:has-many,join:id=target_id" json:"-"`
+	SrcResLinks []*ResLink `bun:"rel:has-many,join:id=dst_id" json:"-"`
+	DstResLinks []*ResLink `bun:"rel:has-many,join:id=src_id" json:"-"`
+
+	// NOTE: temporary fields
+	parsedData      SettingData
+	CurrentObjectID string `bun:"-" json:"-"`
+}
+
+type SettingData interface {
+	GetType() base.SettingType
+	GetRefObjectIDs() *RefObjectIDs
+	GetResourceLinks(setting *Setting) []*ResLink
+	Migrate(setting *Setting) (hasChange bool, err error)
+}
+
+// GetID implements IDEntity interface
+func (s *Setting) GetID() string {
+	return s.ID
+}
+
+// GetName implements NamedEntity interface
+func (s *Setting) GetName() string {
+	return s.Name
+}
+
+// IsActive returns true if setting has status `active` and does not expire
+func (s *Setting) IsActive() bool {
+	return s.Status == base.SettingStatusActive && !s.IsDeleted() && !s.IsExpired()
+}
+
+func (s *Setting) IsDeleted() bool {
+	return !s.DeletedAt.IsZero()
+}
+
+func (s *Setting) IsExpired() bool {
+	return !s.ExpireAt.IsZero() && s.ExpireAt.Before(time.Now())
+}
+
+func (s *Setting) IsStatusDirty() bool {
+	return s.Status == base.SettingStatusActive && s.IsExpired()
+}
+
+func (s *Setting) IsTypeIn(types ...base.SettingType) bool {
+	return gofn.Contain(types, s.Type)
+}
+
+func (s *Setting) SetData(data SettingData) error {
+	if data.GetType() != s.Type {
+		return hperrors.NewMismatch("Setting type", s.Type)
+	}
+	// settings.data is JSONB: see marshalJSONB.
+	b, clean, err := marshalJSONB(data)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	s.Data = reflectutil.UnsafeBytesToStr(b)
+	s.Size = int64(len(s.Data))
+	s.parsedData = nil
+	if clean {
+		s.parsedData = data
+	}
+	return nil
+}
+
+func (s *Setting) MustSetData(data SettingData) {
+	gofn.Must1(s.SetData(data))
+}
+
+func (s *Setting) Parse() (SettingData, error) {
+	return parseSettingAs[SettingData](s)
+}
+
+func (s *Setting) ResetParsedData() {
+	s.parsedData = nil
+}
+
+func (s *Setting) GetRefObjectIDs() (*RefObjectIDs, error) {
+	settingData, err := s.Parse()
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if settingData == nil {
+		return nil, nil
+	}
+	return settingData.GetRefObjectIDs(), nil
+}
+
+func (s *Setting) MustGetRefObjectIDs() *RefObjectIDs {
+	return gofn.Must(s.GetRefObjectIDs())
+}
+
+func parseSettingAs[T SettingData](s *Setting) (res T, err error) {
+	if s.parsedData != nil {
+		res, ok := s.parsedData.(T)
+		if !ok {
+			return res, hperrors.NewMismatch("Setting type", reflect.TypeFor[T]())
+		}
+		return res, nil
+	}
+	res = settingParserMap[s.Type].New().(T) //nolint:forcetypeassert
+	if res.GetType() != s.Type {
+		return res, hperrors.NewMismatch("Setting type", s.Type)
+	}
+	s.parsedData = res
+	if s.Data != "" {
+		err = json.Unmarshal(reflectutil.UnsafeStrToBytes(s.Data), res)
+		if err != nil {
+			return res, hperrors.Wrap(err)
+		}
+	}
+	return res, nil
+}
+
+func (s *Setting) GetResourceLinks() ([]*ResLink, error) {
+	if !s.DeletedAt.IsZero() {
+		return nil, nil
+	}
+	settingData, err := s.Parse()
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if settingData == nil {
+		return nil, nil
+	}
+	return settingData.GetResourceLinks(s), nil
+}
+
+func (s *Setting) Migrate() (hasChange bool, err error) {
+	settingData, err := s.Parse()
+	if err != nil {
+		return false, hperrors.Wrap(err)
+	}
+	if settingData == nil {
+		return false, nil
+	}
+	hasChange, err = settingData.Migrate(s)
+	if err != nil {
+		return false, hperrors.Wrap(err)
+	}
+	return hasChange, nil
+}
+
+func (s *Setting) Clone(genID bool) (*Setting, error) {
+	cp := new(*s)
+	cp.parsedData = nil
+	if genID {
+		cp.ID = gofn.Must(ulid.NewStringULID())
+	}
+	_, err := cp.Parse()
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return cp, nil
+}

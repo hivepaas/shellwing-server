@@ -1,0 +1,247 @@
+package repository
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/uptrace/bun"
+
+	"github.com/hivepaas/shellwing-server/base"
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/bunex"
+)
+
+type ACLPermissionRepo interface {
+	ListByResources(ctx context.Context, db database.IDB, resources []*base.PermissionResource,
+		opts ...bunex.SelectQueryOption) ([]*entity.ACLPermission, error)
+	ListByUsers(ctx context.Context, db database.IDB, userIDs []string,
+		opts ...bunex.SelectQueryOption) ([]*entity.ACLPermission, error)
+	List(ctx context.Context, db database.IDB, paging *basedto.Paging,
+		opts ...bunex.SelectQueryOption) ([]*entity.ACLPermission, *basedto.PagingMeta, error)
+
+	UpsertMulti(ctx context.Context, db database.IDB, permissions []*entity.ACLPermission,
+		conflictCols, updateCols []string, opts ...bunex.InsertQueryOption) error
+
+	DeleteByResources(ctx context.Context, db database.IDB, resources []*base.PermissionResource,
+		opts ...bunex.DeleteQueryOption) error
+	DeleteBySubjects(ctx context.Context, db database.IDB, subjectType base.SubjectType, subjectIDs []string,
+		opts ...bunex.DeleteQueryOption) error
+	DeleteByObjects(ctx context.Context, db database.IDB, objectIDs []string,
+		opts ...bunex.DeleteQueryOption) error
+	Delete(ctx context.Context, db database.IDB, opts ...bunex.DeleteQueryOption) error
+	DeleteHard(ctx context.Context, db database.IDB, opts ...bunex.DeleteQueryOption) error
+}
+
+type aclPermissionRepo struct {
+}
+
+func NewACLPermissionRepo() ACLPermissionRepo {
+	return &aclPermissionRepo{}
+}
+
+func (repo *aclPermissionRepo) ListByResources(ctx context.Context, db database.IDB,
+	resources []*base.PermissionResource, opts ...bunex.SelectQueryOption) ([]*entity.ACLPermission, error) {
+	if len(resources) == 0 {
+		return nil, nil
+	}
+	var condition string
+	args := make([]any, 0, len(resources)*2) //nolint:mnd
+	for _, res := range resources {
+		subjectCol := "subj_id"
+		subjectArg := res.SubjectID
+		if res.SubjectID == "" {
+			subjectCol = "subj_type"
+			subjectArg = string(res.SubjectType)
+		}
+		resCol := "res_id"
+		resArg := res.ResourceID
+		if res.ResourceID == "" {
+			resCol = "res_type"
+			resArg = string(res.ResourceType)
+		}
+		if condition == "" {
+			condition = fmt.Sprintf("(%s,%s) = (?,?)", subjectCol, resCol)
+		} else {
+			condition = fmt.Sprintf("%s OR (%s,%s) = (?,?)", condition, subjectCol, resCol)
+		}
+		args = append(args, subjectArg, resArg)
+	}
+
+	var permissions []*entity.ACLPermission
+	query := db.NewSelect().Model(&permissions).Where(condition, args...)
+	query = bunex.ApplySelect(query, opts...)
+
+	err := query.Scan(ctx)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return permissions, nil
+}
+
+func (repo *aclPermissionRepo) ListByUsers(ctx context.Context, db database.IDB, userIDs []string,
+	opts ...bunex.SelectQueryOption) ([]*entity.ACLPermission, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	var permissions []*entity.ACLPermission
+	query := db.NewSelect().Model(&permissions).Where("subj_id IN (?)", bun.List(userIDs))
+	query = bunex.ApplySelect(query, opts...)
+
+	err := query.Scan(ctx)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return permissions, nil
+}
+
+func (repo *aclPermissionRepo) List(ctx context.Context, db database.IDB, paging *basedto.Paging,
+	opts ...bunex.SelectQueryOption) ([]*entity.ACLPermission, *basedto.PagingMeta, error) {
+	var acls []*entity.ACLPermission
+	query := db.NewSelect().Model(&acls)
+	query = bunex.ApplySelect(query, opts...)
+
+	var pagingMeta *basedto.PagingMeta
+	if paging != nil {
+		pagingMeta = newPagingMeta(paging)
+
+		// Counts the total first
+		total, err := query.Count(ctx)
+		if err != nil {
+			return nil, nil, hperrors.Wrap(err)
+		}
+		pagingMeta.Total = total
+
+		// Applies pagination
+		query = bunex.ApplyPagination(query, paging)
+	}
+
+	err := query.Scan(ctx)
+	if err != nil {
+		return nil, nil, wrapPaginationError(err, paging)
+	}
+
+	return acls, pagingMeta, nil
+}
+
+func (repo *aclPermissionRepo) UpsertMulti(ctx context.Context, db database.IDB, permissions []*entity.ACLPermission,
+	conflictCols, updateCols []string, opts ...bunex.InsertQueryOption) error {
+	if len(permissions) == 0 {
+		return nil
+	}
+	query := db.NewInsert().Model(&permissions)
+	query = bunex.ApplyInsert(query, opts...)
+	query = bunex.ApplyUpsert(query, conflictCols, updateCols)
+
+	_, err := query.Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *aclPermissionRepo) DeleteByResources(ctx context.Context, db database.IDB,
+	resources []*base.PermissionResource, opts ...bunex.DeleteQueryOption) error {
+	if len(resources) == 0 {
+		return nil
+	}
+	var condition string
+	args := make([]any, 0, len(resources)*2) //nolint:mnd
+	for _, res := range resources {
+		subjectCol := "subj_id"
+		subjectArg := res.SubjectID
+		if res.SubjectID == "" {
+			subjectCol = "subj_type"
+			subjectArg = string(res.SubjectType)
+		}
+		resCol := "res_id"
+		resArg := res.ResourceID
+		if res.ResourceID == "" {
+			resCol = "res_type"
+			resArg = string(res.ResourceType)
+		}
+		if condition == "" {
+			condition = fmt.Sprintf("(%s,%s) = (?,?)", subjectCol, resCol)
+		} else {
+			condition = fmt.Sprintf("%s OR (%s,%s) = (?,?)", condition, subjectCol, resCol)
+		}
+		args = append(args, subjectArg, resArg)
+	}
+
+	query := db.NewDelete().Model((*entity.ACLPermission)(nil))
+	if condition != "" {
+		query = query.Where(condition, args...)
+	}
+	query = bunex.ApplyDelete(query, opts...)
+
+	_, err := query.Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *aclPermissionRepo) DeleteBySubjects(ctx context.Context, db database.IDB,
+	subjectType base.SubjectType, subjectIDs []string, opts ...bunex.DeleteQueryOption) error {
+	if len(subjectIDs) == 0 {
+		return nil
+	}
+	query := db.NewDelete().Model((*entity.ACLPermission)(nil)).
+		Where("subj_type = ?", subjectType).
+		Where("subj_id IN (?)", bun.List(subjectIDs))
+	query = bunex.ApplyDelete(query, opts...)
+
+	_, err := query.Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *aclPermissionRepo) DeleteByObjects(ctx context.Context, db database.IDB, objectIDs []string,
+	opts ...bunex.DeleteQueryOption) error {
+	if len(objectIDs) == 0 {
+		return nil
+	}
+	query := db.NewDelete().Model((*entity.ACLPermission)(nil)).
+		Where("(subj_id IN (?) OR res_id IN (?))", bun.List(objectIDs), bun.List(objectIDs))
+	query = bunex.ApplyDelete(query, opts...)
+
+	_, err := query.Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *aclPermissionRepo) Delete(ctx context.Context, db database.IDB,
+	opts ...bunex.DeleteQueryOption) error {
+	if len(opts) == 0 {
+		return hperrors.NewArgumentInvalid("opts").WithMsgLog("Delete requires at least one condition")
+	}
+	query := db.NewDelete().Model((*entity.ACLPermission)(nil))
+	query = bunex.ApplyDelete(query, opts...)
+
+	_, err := query.Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *aclPermissionRepo) DeleteHard(ctx context.Context, db database.IDB,
+	opts ...bunex.DeleteQueryOption) error {
+	if len(opts) == 0 {
+		return hperrors.NewArgumentInvalid("opts").WithMsgLog("DeleteHard requires at least one condition")
+	}
+	query := db.NewDelete().Model((*entity.ACLPermission)(nil)).ForceDelete().WhereAllWithDeleted()
+	query = bunex.ApplyDelete(query, opts...)
+
+	_, err := query.Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}

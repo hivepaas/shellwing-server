@@ -1,0 +1,79 @@
+package oauthdto
+
+import (
+	vld "github.com/tiendc/go-validator"
+
+	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/entity"
+	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/copier"
+	"github.com/hivepaas/shellwing-server/usecase/settings"
+)
+
+type GetOAuthReq struct {
+	settings.GetSettingReq
+}
+
+func NewGetOAuthReq() *GetOAuthReq {
+	return &GetOAuthReq{}
+}
+
+func (req *GetOAuthReq) Validate() hperrors.ValidationErrors {
+	validators := make([]vld.Validator, 0, 10) //nolint:mnd
+	validators = append(validators, req.GetSettingReq.Validate()...)
+	return hperrors.NewValidationErrors(vld.Validate(validators...))
+}
+
+type GetOAuthResp struct {
+	Meta *basedto.Meta `json:"meta"`
+	Data *OAuthResp    `json:"data"`
+}
+
+type OAuthResp struct {
+	*settings.BaseSettingResp
+	ClientID         string   `json:"clientId"`
+	ClientSecret     string   `json:"clientSecret"`
+	Organization     string   `json:"organization"`
+	CallbackURL      string   `json:"callbackURL"`
+	AuthURL          string   `json:"authURL,omitempty"`
+	TokenURL         string   `json:"tokenURL,omitempty"`
+	ProfileURL       string   `json:"profileURL,omitempty"`
+	AutoDiscoveryURL string   `json:"autoDiscoveryURL,omitempty"`
+	Scopes           []string `json:"scopes,omitempty"`
+	TrustEmail       bool     `json:"trustEmail,omitempty"`
+	SecretMasked     bool     `json:"secretMasked,omitempty"`
+}
+
+func (resp *OAuthResp) CopyClientSecret(field entity.EncryptedField) error {
+	resp.ClientSecret = field.String()
+	return nil
+}
+
+type OAuthTransformInput struct {
+	RefObjects      *entity.RefObjects
+	BaseCallbackURL string
+}
+
+func TransformOAuth(
+	setting *entity.Setting,
+	input *OAuthTransformInput,
+) (resp *OAuthResp, err error) {
+	config := setting.MustAsOAuth()
+	if err = copier.Copy(&resp, config); err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	resp.BaseSettingResp, err = settings.TransformSettingBase(setting)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+
+	// Recalculate callbackURL for the oauth as it depends on the actual server address
+	resp.CallbackURL = input.BaseCallbackURL + "/" + setting.ID
+	resp.SecretMasked = config.ClientSecret.IsEncrypted() || resp.Inherited
+	if resp.SecretMasked {
+		resp.ClientSecret = basedto.MaskedSecret
+	}
+
+	return resp, nil
+}

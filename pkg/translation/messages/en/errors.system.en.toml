@@ -1,0 +1,5 @@
+# Messages for the errors declared in hperrors/errors_system.go.
+# Adding or removing an error there means editing this file.
+
+# System errors
+ERR_UPDATE_VER_MISMATCHED = "Mismatching update version. Please reload the page."
