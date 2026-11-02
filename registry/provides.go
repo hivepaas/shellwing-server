@@ -12,6 +12,7 @@ import (
 	"github.com/hivepaas/shellwing-server/interface/api/handler/basesettinghandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/devhelperhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/imagehandler"
+	"github.com/hivepaas/shellwing-server/interface/api/handler/orghandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/sessionhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/settinghandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/supporthandler"
@@ -46,6 +47,7 @@ import (
 	"github.com/hivepaas/shellwing-server/usecase/auditloguc"
 	"github.com/hivepaas/shellwing-server/usecase/binobjectuc"
 	"github.com/hivepaas/shellwing-server/usecase/devhelperuc"
+	"github.com/hivepaas/shellwing-server/usecase/orguc"
 	"github.com/hivepaas/shellwing-server/usecase/sessionuc"
 	"github.com/hivepaas/shellwing-server/usecase/settings"
 	"github.com/hivepaas/shellwing-server/usecase/settings/cloudstorageuc"
@@ -96,6 +98,7 @@ var Provides = []any{
 	devhelperhandler.New,
 	handler.New,
 	imagehandler.New,
+	orghandler.New,
 	server.NewHandlerRegistry,
 	sessionhandler.New,
 	settinghandler.New,
@@ -118,6 +121,7 @@ var Provides = []any{
 	sessionuc.New,
 	settings.New,
 	supportuc.New,
+	orguc.New,
 	syncuc.New,
 	licenseuc.New,
 	syserroruc.New,
@@ -155,6 +159,7 @@ var Provides = []any{
 	repository.NewLockRepo,
 	repository.NewLoginTrustedDeviceRepo,
 	repository.NewOrganizationRepo,
+	repository.NewSSHCARepo,
 	repository.NewResLinkRepo,
 	repository.NewSettingRepo,
 	repository.NewSpaceRepo,

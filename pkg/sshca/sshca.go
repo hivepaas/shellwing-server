@@ -1,0 +1,160 @@
+// Package sshca is an SSH certificate authority: it makes CA keys and signs short-lived user certificates. It holds no
+// state, and what a certificate may do is its callers' to decide.
+package sshca
+
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/binary"
+	"encoding/pem"
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+
+	"github.com/hivepaas/shellwing-server/hperrors"
+)
+
+const (
+	// clockSkew backdates a certificate, for a target server whose clock is a little behind this one's.
+	clockSkew = 5 * time.Minute
+	// MaxPublicKeyLen bounds the text taken as a public key: the largest kind in use is a few kilobytes.
+	MaxPublicKeyLen = 16 << 10
+	// MaxPrincipals bounds how many accounts one person is granted.
+	MaxPrincipals = 32
+
+	minRSABits = 2048
+)
+
+// principalPattern admits what account names are. It leaves out what would change meaning where principals are written
+// down: commas split them in a certificate's option and in sshd's configuration, and spaces and # in its files.
+var principalPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,63}$`)
+
+// ValidPrincipal says whether a name can be granted.
+func ValidPrincipal(name string) bool {
+	return principalPattern.MatchString(name)
+}
+
+// CAKey is a new CA's key pair: the public half as a line for TrustedUserCAKeys, the private half as PEM.
+type CAKey struct {
+	PublicKey  string
+	PrivateKey string
+}
+
+// GenerateCA makes an Ed25519 CA key.
+func GenerateCA() (*CAKey, error) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	sshPublic, err := ssh.NewPublicKey(public)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	block, err := ssh.MarshalPrivateKey(private, "")
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return &CAKey{
+		PublicKey:  strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublic))),
+		PrivateKey: string(pem.EncodeToMemory(block)),
+	}, nil
+}
+
+// ParseUserKey reads a public key as authorized_keys has it, and refuses a certificate, or a kind or size not signed.
+func ParseUserKey(text string) (ssh.PublicKey, error) {
+	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.TrimSpace(text))) //nolint:dogsled // only the key
+	if err != nil {
+		return nil, hperrors.Wrap(hperrors.ErrSSHPublicKeyInvalid)
+	}
+	switch key.Type() {
+	case ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521,
+		ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256:
+		return key, nil
+	case ssh.KeyAlgoRSA:
+		crypto, isCrypto := key.(ssh.CryptoPublicKey)
+		if !isCrypto {
+			return nil, hperrors.Wrap(hperrors.ErrSSHPublicKeyInvalid)
+		}
+		public, isRSA := crypto.CryptoPublicKey().(*rsa.PublicKey)
+		if !isRSA || public.N.BitLen() < minRSABits {
+			return nil, hperrors.Wrap(hperrors.ErrSSHPublicKeyInvalid)
+		}
+		return key, nil
+	}
+	return nil, hperrors.Wrap(hperrors.ErrSSHPublicKeyInvalid)
+}
+
+// UserCert is what to sign.
+type UserCert struct {
+	Key        ssh.PublicKey
+	KeyID      string
+	Principals []string
+	TTL        time.Duration
+	Now        time.Time
+}
+
+// Signed is a certificate, as a line for a `-cert.pub` file, and what it says.
+type Signed struct {
+	Certificate string
+	Serial      uint64
+	Fingerprint string
+	ValidAfter  time.Time
+	ValidBefore time.Time
+}
+
+// Sign signs a user certificate. A certificate with no principals would be good for every account, so one is refused.
+// Its permissions are those of `ssh-keygen -s`: what a person could do with their plain key, as far as sshd says.
+func Sign(caPrivateKey string, cert *UserCert) (*Signed, error) {
+	if len(cert.Principals) == 0 {
+		return nil, hperrors.Wrap(hperrors.ErrSSHNoPrincipals)
+	}
+	signer, err := ssh.ParsePrivateKey([]byte(caPrivateKey))
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	serial, err := newSerial()
+	if err != nil {
+		return nil, err
+	}
+	validAfter := cert.Now.Add(-clockSkew).Truncate(time.Second)
+	validBefore := cert.Now.Add(cert.TTL).Truncate(time.Second)
+	sshCert := &ssh.Certificate{
+		Key:             cert.Key,
+		Serial:          serial,
+		CertType:        ssh.UserCert,
+		KeyId:           cert.KeyID,
+		ValidPrincipals: cert.Principals,
+		ValidAfter:      uint64(validAfter.Unix()),  //nolint:gosec // G115: a time after 1970
+		ValidBefore:     uint64(validBefore.Unix()), //nolint:gosec // G115: a time after 1970
+		Permissions: ssh.Permissions{Extensions: map[string]string{
+			"permit-X11-forwarding":   "",
+			"permit-agent-forwarding": "",
+			"permit-port-forwarding":  "",
+			"permit-pty":              "",
+			"permit-user-rc":          "",
+		}},
+	}
+	if err = sshCert.SignCert(rand.Reader, signer); err != nil {
+		return nil, hperrors.Wrap(fmt.Errorf("signing a certificate: %w", err))
+	}
+	return &Signed{
+		Certificate: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshCert))),
+		Serial:      serial,
+		Fingerprint: ssh.FingerprintSHA256(cert.Key),
+		ValidAfter:  validAfter,
+		ValidBefore: validBefore,
+	}, nil
+}
+
+// newSerial is random, within 63 bits: sshd's logs and JSON readers are not all good for the full 64.
+func newSerial() (uint64, error) {
+	var data [8]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		return 0, hperrors.Wrap(err)
+	}
+	return binary.BigEndian.Uint64(data[:]) >> 1, nil
+}

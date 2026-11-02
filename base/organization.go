@@ -32,3 +32,16 @@ const (
 	SpaceTypePersonal   SpaceType = "personal"
 	SpaceTypeCollection SpaceType = "collection"
 )
+
+type SSHCAStatus string
+
+const (
+	SSHCAStatusActive  SSHCAStatus = "active"
+	SSHCAStatusRetired SSHCAStatus = "retired"
+)
+
+// The bounds of how long an SSH certificate lasts. Certificates are not revoked, they expire: this keeps that soon.
+const (
+	SSHCertTTLMinMinutes = 5
+	SSHCertTTLMaxMinutes = 1440
+)

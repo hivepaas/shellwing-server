@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS org_members
                    (role IN ('owner','admin','member')),
     status     VARCHAR NOT NULL CONSTRAINT chk_status CHECK
                    (status IN ('active','invited','disabled')),
+    -- The accounts an SSH certificate of this person may log in as. None until an admin grants them.
+    ssh_principals TEXT[] NOT NULL DEFAULT '{}',
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -13,6 +13,7 @@ import (
 	"github.com/hivepaas/shellwing-server/interface/api/handler/authhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/devhelperhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/imagehandler"
+	"github.com/hivepaas/shellwing-server/interface/api/handler/orghandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/sessionhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/settinghandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/supporthandler"
@@ -27,6 +28,7 @@ type HandlerRegistry struct {
 	auditLogHandler  *auditloghandler.Handler
 	devHelperHandler *devhelperhandler.Handler
 	imageHandler     *imagehandler.Handler
+	orgHandler       *orghandler.Handler
 	sessionHandler   *sessionhandler.Handler
 	settingHandler   *settinghandler.Handler
 	supportHandler   *supporthandler.Handler
@@ -41,6 +43,7 @@ func NewHandlerRegistry(
 	auditLogHandler *auditloghandler.Handler,
 	devHelperHandler *devhelperhandler.Handler,
 	imageHandler *imagehandler.Handler,
+	orgHandler *orghandler.Handler,
 	sessionHandler *sessionhandler.Handler,
 	settingHandler *settinghandler.Handler,
 	supportHandler *supporthandler.Handler,
@@ -54,6 +57,7 @@ func NewHandlerRegistry(
 		auditLogHandler:  auditLogHandler,
 		devHelperHandler: devHelperHandler,
 		imageHandler:     imageHandler,
+		orgHandler:       orgHandler,
 		sessionHandler:   sessionHandler,
 		settingHandler:   settingHandler,
 		supportHandler:   supportHandler,
@@ -106,6 +110,7 @@ func (s *HTTPServer) registerAPIRoutes(apiGroup *gin.RouterGroup) {
 	s.registerImageRoutes(apiGroup)
 	s.registerSupportRoutes(apiGroup)
 	s.registerSyncRoutes(apiGroup)
+	s.registerOrgRoutes(apiGroup)
 }
 
 // registerWebApp serves the web app at the root: its files as they are, with no directory listing, and its index.html

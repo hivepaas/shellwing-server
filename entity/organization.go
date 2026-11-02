@@ -12,6 +12,8 @@ type Organization struct {
 	Name      string         `json:"name"`
 	Status    base.OrgStatus `json:"status"`
 	UpdateVer int            `json:"updateVer"`
+	// SSHCertTTLMinutes is how long a certificate its CA signs lasts.
+	SSHCertTTLMinutes int `bun:"ssh_cert_ttl_minutes,nullzero,default:480" json:"sshCertTtlMinutes"`
 
 	CreatedAt time.Time `bun:",default:current_timestamp" json:"createdAt"`
 	UpdatedAt time.Time `bun:",default:current_timestamp" json:"updatedAt"`
@@ -28,6 +30,8 @@ type OrgMember struct {
 	UserID string               `bun:",pk" json:"userId"`
 	Role   base.OrgRole         `json:"role"`
 	Status base.OrgMemberStatus `json:"status"`
+	// SSHPrincipals are the accounts an SSH certificate of this person may log in as.
+	SSHPrincipals []string `bun:"ssh_principals,array,nullzero,default:'{}'" json:"sshPrincipals"`
 
 	CreatedAt time.Time `bun:",default:current_timestamp" json:"createdAt"`
 	UpdatedAt time.Time `bun:",default:current_timestamp" json:"updatedAt"`

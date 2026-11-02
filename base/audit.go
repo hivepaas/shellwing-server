@@ -104,10 +104,19 @@ const (
 
 	// AuditLogTypeLicenseUpdate records a license key being installed or removed, with section naming which.
 	AuditLogTypeLicenseUpdate AuditLogType = "license-update"
+
+	// AuditLogTypeSSHCAUpdate records a change to who may get an SSH certificate and how: a CA made or deleted, the
+	// lifetime of certificates, or a person's principals, with section naming which.
+	AuditLogTypeSSHCAUpdate AuditLogType = "ssh-ca-update"
+	// AuditLogTypeSSHCertIssue records an SSH certificate being signed. Certificates are not stored: this is the record
+	// of who holds which, and when each ends.
+	AuditLogTypeSSHCertIssue AuditLogType = "ssh-cert-issue"
 )
 
 var AllAuditLogTypes = []AuditLogType{
 	AuditLogTypeLicenseUpdate,
+	AuditLogTypeSSHCAUpdate,
+	AuditLogTypeSSHCertIssue,
 	AuditLogTypeSecretReveal,
 	AuditLogTypeUserCreate,
 	AuditLogTypeUserUpdate,
