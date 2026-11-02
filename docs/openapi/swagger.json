@@ -509,6 +509,306 @@
         "tags" : [ "Sessions" ]
       }
     },
+    "/devices" : {
+      "get" : {
+        "description" : "The apps signed in as the person.",
+        "operationId" : "listDevices",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/sessiondto.ListDevicesResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Lists the person's devices",
+        "tags" : [ "Sessions" ]
+      }
+    },
+    "/devices/authorize" : {
+      "post" : {
+        "description" : "The person approves in their browser. The answer is where the browser goes next: the app's loopback\naddress, with a code.",
+        "operationId" : "authorizeDevice",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/sessiondto.AuthorizeDeviceReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/sessiondto.AuthorizeDeviceResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Lets an app on the person's device sign in",
+        "tags" : [ "Sessions" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/devices/refresh" : {
+      "post" : {
+        "description" : "For the device's refresh token, which stays as it is.",
+        "operationId" : "refreshDevice",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/sessiondto.DeviceRefreshTokenReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/sessiondto.DeviceTokensResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Unauthorized"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "security" : [ ],
+        "summary" : "Gives an app a new access token",
+        "tags" : [ "Sessions" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/devices/sign-out" : {
+      "post" : {
+        "description" : "With its own refresh token, which stops working.",
+        "operationId" : "signOutDevice",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/sessiondto.DeviceRefreshTokenReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/sessiondto.SignOutDeviceResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "security" : [ ],
+        "summary" : "Signs an app out",
+        "tags" : [ "Sessions" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/devices/token" : {
+      "post" : {
+        "description" : "The app proves it asked for the code with the PKCE verifier. A code works once.",
+        "operationId" : "exchangeDeviceCode",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/sessiondto.ExchangeDeviceCodeReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/sessiondto.DeviceTokensResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "security" : [ ],
+        "summary" : "Gives an app its tokens for a code",
+        "tags" : [ "Sessions" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/devices/{deviceID}" : {
+      "delete" : {
+        "description" : "Its tokens stop working at once. Its copy of the data stays on the device.",
+        "operationId" : "revokeDevice",
+        "parameters" : [ {
+          "description" : "device ID",
+          "in" : "path",
+          "name" : "deviceID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/sessiondto.RevokeDeviceResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Signs out one of the person's devices",
+        "tags" : [ "Sessions" ]
+      }
+    },
     "/images/{imageID}" : {
       "get" : {
         "description" : "Gets an image file",
@@ -5505,6 +5805,55 @@
         "required" : [ "id", "type" ],
         "type" : "object"
       },
+      "sessiondto.AuthorizeDeviceData" : {
+        "properties" : {
+          "redirectUrl" : {
+            "description" : "RedirectURL is where the browser goes next: the app, with its code.",
+            "type" : "string"
+          }
+        },
+        "required" : [ "redirectUrl" ],
+        "type" : "object"
+      },
+      "sessiondto.AuthorizeDeviceReq" : {
+        "properties" : {
+          "codeChallenge" : {
+            "type" : "string"
+          },
+          "deviceName" : {
+            "type" : "string"
+          },
+          "platform" : {
+            "type" : "string"
+          },
+          "redirectUri" : {
+            "type" : "string"
+          },
+          "state" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "codeChallenge", "deviceName", "platform", "redirectUri", "state" ],
+        "type" : "object"
+      },
+      "sessiondto.AuthorizeDeviceResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/sessiondto.AuthorizeDeviceData"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
       "sessiondto.BaseCreateSessionResp" : {
         "properties" : {
           "accessToken" : {
@@ -5584,6 +5933,87 @@
           }
         },
         "required" : [ "meta" ],
+        "type" : "object"
+      },
+      "sessiondto.DeviceRefreshTokenReq" : {
+        "properties" : {
+          "refreshToken" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "refreshToken" ],
+        "type" : "object"
+      },
+      "sessiondto.DeviceResp" : {
+        "properties" : {
+          "createdAt" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "lastSeenAt" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "platform" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "createdAt", "id", "lastSeenAt", "name", "platform" ],
+        "type" : "object"
+      },
+      "sessiondto.DeviceTokensData" : {
+        "properties" : {
+          "accessToken" : {
+            "type" : "string"
+          },
+          "accessTokenExp" : {
+            "type" : "string"
+          },
+          "deviceId" : {
+            "type" : "string"
+          },
+          "refreshToken" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "accessToken", "accessTokenExp", "deviceId" ],
+        "type" : "object"
+      },
+      "sessiondto.DeviceTokensResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/sessiondto.DeviceTokensData"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "sessiondto.ExchangeDeviceCodeReq" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "codeVerifier" : {
+            "type" : "string"
+          },
+          "redirectUri" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "code", "codeVerifier", "redirectUri" ],
         "type" : "object"
       },
       "sessiondto.GetLoginOptionsResp" : {
@@ -5676,6 +6106,25 @@
               "$ref" : "#/components/schemas/sessiondto.SignupOptionsDataResp"
             } ],
             "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "sessiondto.ListDevicesResp" : {
+        "properties" : {
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/sessiondto.DeviceResp"
+            },
+            "nullable" : true,
+            "type" : "array"
           },
           "meta" : {
             "allOf" : [ {
@@ -5850,6 +6299,18 @@
         "required" : [ "data", "meta" ],
         "type" : "object"
       },
+      "sessiondto.RevokeDeviceResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
+        "type" : "object"
+      },
       "sessiondto.SSOSignupInfoDataResp" : {
         "properties" : {
           "email" : {
@@ -5860,6 +6321,18 @@
           }
         },
         "required" : [ "email" ],
+        "type" : "object"
+      },
+      "sessiondto.SignOutDeviceResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
         "type" : "object"
       },
       "sessiondto.SignupOptionsDataResp" : {

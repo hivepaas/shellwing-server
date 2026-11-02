@@ -7,6 +7,11 @@ type Session struct {
 	PasscodeTimeout        time.Duration `toml:"passcode_timeout" env:"SHW_SESSION_PASSCODE_TIMEOUT" default:"60s"`
 	DeviceTrustedPeriod    time.Duration `toml:"device_trusted_period" env:"SHW_SESSION_DEVICE_TRUSTED_PERIOD" default:"48h"` //nolint:lll
 
+	// DeviceAccessTokenExp and DeviceRefreshTokenExp are an app's: a short token it renews by itself, and how long it
+	// may go unused before its person has to sign in again.
+	DeviceAccessTokenExp  time.Duration `toml:"device_access_token_exp" env:"SHW_SESSION_DEVICE_ACCESS_TOKEN_EXP" default:"15m"`     //nolint:lll
+	DeviceRefreshTokenExp time.Duration `toml:"device_refresh_token_exp" env:"SHW_SESSION_DEVICE_REFRESH_TOKEN_EXP" default:"2160h"` //nolint:lll
+
 	JWTSecret       string        `toml:"jwt_secret" env:"SHW_SESSION_JWT_SECRET"`
 	AccessTokenExp  time.Duration `toml:"access_token_exp" env:"SHW_SESSION_ACCESS_TOKEN_EXP" default:"8h"`
 	RefreshTokenExp time.Duration `toml:"refresh_token_exp" env:"SHW_SESSION_REFRESH_TOKEN_EXP" default:"16h"`

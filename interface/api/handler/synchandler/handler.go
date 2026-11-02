@@ -83,7 +83,7 @@ func conditionOf(ctx *gin.Context) syncservice.Condition {
 // @Failure 500 {object} hperrors.ErrorInfo
 // @Router  /sync/spaces [get]
 func (h *Handler) ListSyncSpaces(ctx *gin.Context) {
-	auth, err := h.authHandler.GetCurrentAuth(ctx, authhandler.NoAccessCheck)
+	auth, err := h.authHandler.GetSyncAuth(ctx)
 	if err != nil {
 		h.RenderError(ctx, err)
 		return
@@ -112,7 +112,7 @@ func (h *Handler) ListSyncSpaces(ctx *gin.Context) {
 // @Failure 500 {object} hperrors.ErrorInfo
 // @Router  /sync/spaces/{spaceID}/changes [get]
 func (h *Handler) ListSyncChanges(ctx *gin.Context) {
-	auth, err := h.authHandler.GetCurrentAuth(ctx, authhandler.NoAccessCheck)
+	auth, err := h.authHandler.GetSyncAuth(ctx)
 	if err != nil {
 		h.RenderError(ctx, err)
 		return
@@ -162,7 +162,7 @@ func parseQueryInt(raw, name string) (int64, error) {
 // @Failure 500 {object} hperrors.ErrorInfo
 // @Router  /sync/spaces/{spaceID}/object [get]
 func (h *Handler) GetSyncObject(ctx *gin.Context) {
-	auth, err := h.authHandler.GetCurrentAuth(ctx, authhandler.NoAccessCheck)
+	auth, err := h.authHandler.GetSyncAuth(ctx)
 	if err != nil {
 		h.RenderError(ctx, err)
 		return
@@ -204,7 +204,7 @@ func (h *Handler) GetSyncObject(ctx *gin.Context) {
 // @Failure 500 {object} hperrors.ErrorInfo
 // @Router  /sync/spaces/{spaceID}/object [put]
 func (h *Handler) PutSyncObject(ctx *gin.Context) {
-	auth, err := h.authHandler.GetCurrentAuth(ctx, authhandler.NoAccessCheck)
+	auth, err := h.authHandler.GetSyncAuth(ctx)
 	if err != nil {
 		h.RenderError(ctx, err)
 		return
@@ -246,7 +246,7 @@ func (h *Handler) PutSyncObject(ctx *gin.Context) {
 // @Failure 500 {object} hperrors.ErrorInfo
 // @Router  /sync/spaces/{spaceID}/object [delete]
 func (h *Handler) DeleteSyncObject(ctx *gin.Context) {
-	auth, err := h.authHandler.GetCurrentAuth(ctx, authhandler.NoAccessCheck)
+	auth, err := h.authHandler.GetSyncAuth(ctx)
 	if err != nil {
 		h.RenderError(ctx, err)
 		return
@@ -277,7 +277,7 @@ type syncEvent struct {
 // @Failure 500 {object} hperrors.ErrorInfo
 // @Router  /sync/spaces/{spaceID}/events [get]
 func (h *Handler) StreamSyncEvents(ctx *gin.Context) {
-	auth, err := h.authHandler.GetCurrentAuth(ctx, authhandler.NoAccessCheck)
+	auth, err := h.authHandler.GetSyncAuth(ctx)
 	if err != nil {
 		h.RenderError(ctx, err)
 		return

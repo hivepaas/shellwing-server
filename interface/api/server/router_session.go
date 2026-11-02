@@ -15,6 +15,15 @@ func (s *HTTPServer) registerSessionRoutes(apiGroup *gin.RouterGroup) {
 	sessionGroup.DELETE("", sessionHandler.DeleteSession)
 	sessionGroup.POST("/delete-all", sessionHandler.DeleteAllSessions)
 
+	// Apps on people's devices
+	deviceGroup := apiGroup.Group("/devices")
+	deviceGroup.GET("", sessionHandler.ListDevices)
+	deviceGroup.DELETE("/:deviceID", sessionHandler.RevokeDevice)
+	deviceGroup.POST("/authorize", sessionHandler.AuthorizeDevice)
+	deviceGroup.POST("/token", sessionHandler.ExchangeDeviceCode)
+	deviceGroup.POST("/refresh", sessionHandler.RefreshDevice)
+	deviceGroup.POST("/sign-out", sessionHandler.SignOutDevice)
+
 	authGroup := apiGroup.Group("/auth")
 	{
 		// Login options

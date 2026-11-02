@@ -5,6 +5,8 @@ import { type Profile } from "@application/shared/entities";
 
 import { useAuthApi } from "@application/authentication/api";
 import {
+    type Auth_AuthorizeDevice_Req,
+    type Auth_AuthorizeDevice_Res,
     type Auth_CompleteSsoSignup_Req,
     type Auth_ForgotPassword_Req,
     type Auth_ForgotPassword_Res,
@@ -305,6 +307,26 @@ function useCompleteSsoSignup({ onSuccess, ...options }: CompleteSsoSignupOption
 }
 
 /**
+ * Authorize device command
+ */
+type AuthorizeDeviceReq = Auth_AuthorizeDevice_Req["data"];
+type AuthorizeDeviceRes = Auth_AuthorizeDevice_Res;
+
+type AuthorizeDeviceOptions = Omit<UseMutationOptions<AuthorizeDeviceRes, Error, AuthorizeDeviceReq>, "mutationFn">;
+
+function useAuthorizeDevice(options: AuthorizeDeviceOptions = {}) {
+    const {
+        mutations: { authorizeDevice },
+    } = useAuthApi();
+
+    return useMutation({
+        mutationFn: authorizeDevice,
+
+        ...options,
+    });
+}
+
+/**
  * Forgot password command
  */
 type ForgotPasswordReq = Auth_ForgotPassword_Req["data"];
@@ -398,6 +420,7 @@ export const AuthCommands = Object.freeze({
     useSignIn2FA,
     useSignInSSO,
     useCompleteSsoSignup,
+    useAuthorizeDevice,
     useForgotPassword,
     useValidateResetToken,
     useResetPassword,

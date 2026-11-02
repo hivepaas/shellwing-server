@@ -73,6 +73,15 @@ export const ROUTE = {
     },
 
     /**
+     * An app on a device asks to sign in: signed in, and not under auth/, since
+     * `next` never leads there.
+     */
+    connectDevice: {
+        $pattern: "connect-device",
+        $route: "/connect-device/",
+    },
+
+    /**
      * Home: where a signed-in user lands
      */
     home: {

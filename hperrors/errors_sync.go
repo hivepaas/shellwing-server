@@ -13,4 +13,13 @@ var (
 	ErrSyncObjectTooLarge = NewErr(ErrArgumentInvalid, "ERR_SYNC_OBJECT_TOO_LARGE")
 	// ErrSyncSpaceFull refuses a write that would take the space past its limit.
 	ErrSyncSpaceFull = NewErr(ErrConflict, "ERR_SYNC_SPACE_FULL")
+
+	// ErrDeviceRedirectInvalid is an address that is no app's loopback listener: a code never goes anywhere else.
+	ErrDeviceRedirectInvalid = NewErr(ErrArgumentInvalid, "ERR_DEVICE_REDIRECT_INVALID")
+	// ErrDeviceCodeInvalid is a code that is unknown, used already, too old, or not this app's. An app signs in again.
+	ErrDeviceCodeInvalid = NewErr(ErrArgumentInvalid, "ERR_DEVICE_CODE_INVALID")
+	// ErrDeviceTokenInvalid is a refresh token no device may use: its person signs in again.
+	ErrDeviceTokenInvalid = NewErr(ErrUnauthorized, "ERR_DEVICE_TOKEN_INVALID")
+	// ErrScopeNotAllowed refuses a token narrowed to sync anywhere else.
+	ErrScopeNotAllowed = NewErr(ErrForbidden, "ERR_SCOPE_NOT_ALLOWED")
 )

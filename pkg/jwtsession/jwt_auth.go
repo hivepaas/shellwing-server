@@ -7,6 +7,9 @@ import (
 	"github.com/hivepaas/shellwing-server/hperrors"
 )
 
+// ScopeSync is an app's token: it syncs that person's data, and reaches nothing else, whoever the person is.
+const ScopeSync = "sync"
+
 // AuthClaims the claims for authentication
 type AuthClaims struct {
 	BaseClaims
@@ -25,6 +28,9 @@ type AuthClaims struct {
 	StartedAt int64 `json:"startedAt,omitempty"`
 
 	AccessAction *base.AccessActions `json:"access,omitempty"`
+
+	// Scope narrows what the token reaches. Empty: whatever the user may do, as a person signed in on the web app.
+	Scope string `json:"scope,omitempty"`
 }
 
 // SessionStartedAt is when this session's login happened, or the zero time when

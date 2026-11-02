@@ -144,6 +144,7 @@ var Provides = []any{
 	repository.NewAuditLogRepo,
 	repository.NewBinObjectRepo,
 	repository.NewDataMigrationRepo,
+	repository.NewDeviceRepo,
 	repository.NewEncryptionKeyRepo,
 	repository.NewFileRepo,
 	repository.NewLockRepo,
@@ -161,6 +162,7 @@ var Provides = []any{
 	repository.NewUserRepo,
 
 	// Cache repository
+	cacherepository.NewDeviceAuthCodeRepo,
 	cacherepository.NewLoginAttemptRepo,
 	cacherepository.NewMFAPasscodeRepo,
 	cacherepository.NewRateLimitRepo,

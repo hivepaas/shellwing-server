@@ -1,4 +1,5 @@
 import {
+    ConnectDeviceRoute,
     CreateAccountRoute,
     ForgotPasswordRoute,
     ResetPasswordRoute,
@@ -13,6 +14,10 @@ import { type RouteObject } from "react-router";
 
 export const authenticationRouter: RouteObject = {
     children: [
+        {
+            path: ROUTE.connectDevice.$pattern,
+            Component: ConnectDeviceRoute,
+        },
         {
             path: ROUTE.auth.signIn.$pattern,
             Component: SignInRoute,

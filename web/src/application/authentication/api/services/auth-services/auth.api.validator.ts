@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ESecuritySettings, EUserRole } from "@application/shared/enums";
 
 import {
+    type Auth_AuthorizeDevice_Res,
     type Auth_CompleteSsoSignup_Res,
     type Auth_ForgotPassword_Res,
     type Auth_GetLoginOptions_Res,
@@ -62,6 +63,13 @@ const SignIn2FASchema = z.object({
 /**
  * Forgot password API response schema
  */
+const AuthorizeDeviceSchema = z.object({
+    data: z.object({
+        redirectUrl: z.string(),
+    }),
+    meta: BaseMetaApiSchema.nullish(),
+});
+
 const ForgotPasswordSchema = z.object({
     meta: BaseMetaApiSchema.nullish(),
 });
@@ -244,6 +252,18 @@ export class AuthApiValidator {
                 token: data.session.accessToken,
             },
         };
+    };
+
+    /**
+     * Validate and transform the authorize device API response
+     */
+    authorizeDevice = (response: ApiHttpResponse): Auth_AuthorizeDevice_Res => {
+        const { data, meta } = parseApiResponse({
+            response,
+            schema: AuthorizeDeviceSchema,
+        });
+
+        return { data, meta };
     };
 
     /**

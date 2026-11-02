@@ -18,6 +18,7 @@ const (
 	auditMethodPasscode = "passcode"
 	auditMethodOAuth    = "oauth"
 	auditMethodDevMode  = "dev-mode"
+	auditMethodDevice   = "device"
 
 	// auditMethodRefresh is a session renewing itself, and it is the one method
 	// that records nothing - see recordLogin.
