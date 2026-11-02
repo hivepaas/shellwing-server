@@ -14,6 +14,7 @@ import (
 	"github.com/hivepaas/shellwing-server/entity/appentity"
 	"github.com/hivepaas/shellwing-server/hperrors"
 	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/service/licenseservice"
 	"github.com/hivepaas/shellwing-server/service/userservice"
 	"github.com/hivepaas/shellwing-server/usecase/sessionuc/sessiondto"
 )
@@ -43,12 +44,23 @@ func (s *signupUsers) PersistUserData(_ context.Context, _ database.IDB, data *u
 	return nil
 }
 
+// seats stands in for the license: it refuses when it is told to, as a server at its limit does.
+type seats struct {
+	licenseservice.Service
+	refuse error
+}
+
+func (s *seats) CheckUserSeat(context.Context, database.Tx) error {
+	return s.refuse
+}
+
 func newSignupUCTest(t *testing.T, selfSignup bool) (*UC, *spyAuditService, *signupUsers) {
 	t.Helper()
 	uc, audit := newOAuthUCTest(t)
 	config.Current().Users.SelfSignupEnabled = selfSignup
 	users := &signupUsers{tokens: map[string]*appentity.SSOSignupTokenClaims{}}
 	uc.userService = users
+	uc.licenseService = &seats{}
 	uc.cacheMfaPasscodeRepo = &passcodeAttempts{}
 	return uc, audit, users
 }
@@ -108,13 +120,27 @@ func TestGetSSOSignupInfo(t *testing.T) {
 	require.ErrorIs(t, err, hperrors.ErrActionNotAllowedByAdmin, "a token from before sign-up was turned off")
 }
 
+// A server at its limit makes no account, and says so: the person is signed in with their provider, so saying it tells
+// nobody anything about who else has one.
+func TestMakeSSOSignupUserAtTheLimit(t *testing.T) {
+	uc, audit, users := newSignupUCTest(t, true)
+	uc.licenseService = &seats{refuse: hperrors.Wrap(hperrors.ErrPlanLimitReached)}
+	claims := &appentity.SSOSignupTokenClaims{Email: "anna@example.com", Provider: "set-google"}
+
+	_, err := uc.makeSSOSignupUser(context.Background(), database.Tx{}, claims)
+
+	require.ErrorIs(t, err, hperrors.ErrPlanLimitReached)
+	assert.Empty(t, users.persisted)
+	assert.Empty(t, audit.entries)
+}
+
 // The confirmed account is an active member with no password, recorded as made by a provider's sign-up.
 func TestMakeSSOSignupUser(t *testing.T) {
 	uc, audit, users := newSignupUCTest(t, true)
 	claims := &appentity.SSOSignupTokenClaims{Email: "anna@example.com", FullName: "Anna Smith",
 		AvatarURL: "https://example.com/anna.png", Provider: "set-google"}
 
-	user, err := uc.makeSSOSignupUser(context.Background(), nil, claims)
+	user, err := uc.makeSSOSignupUser(context.Background(), database.Tx{}, claims)
 
 	require.NoError(t, err)
 	require.Equal(t, []*entity.User{user}, users.persisted)
@@ -131,7 +157,7 @@ func TestMakeSSOSignupUser(t *testing.T) {
 
 	// An email that has a user by now - the link confirmed twice - makes nothing more.
 	uc.userRepo.(*userByEmail).users["anna@example.com"] = user
-	_, err = uc.makeSSOSignupUser(context.Background(), nil, claims)
+	_, err = uc.makeSSOSignupUser(context.Background(), database.Tx{}, claims)
 	require.ErrorIs(t, err, hperrors.ErrEmailUnavailable)
 	assert.Len(t, users.persisted, 1)
 }

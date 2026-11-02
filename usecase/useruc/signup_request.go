@@ -109,6 +109,11 @@ func (uc *UC) RequestUserSignup(
 		return &userdto.RequestUserSignupResp{}, nil
 	case signupRequestCreate:
 		user, err = uc.createSelfSignupUser(ctx, req)
+		if errors.Is(err, hperrors.ErrPlanLimitReached) {
+			// The same empty answer, with nothing sent: telling only a new address so would tell which ones are
+			// taken. An admin finds no new account, and the server's limit says why.
+			return &userdto.RequestUserSignupResp{}, nil
+		}
 		if bunex.IsErrorUniqueViolation(err) {
 			// A concurrent request took the address, or the username made from it, first. Nothing was
 			// written here; asking again sends a link.
@@ -175,6 +180,9 @@ func (uc *UC) createSelfSignupUser(
 	req *userdto.RequestUserSignupReq,
 ) (user *entity.User, err error) {
 	err = transaction.Execute(ctx, uc.db, func(db database.Tx) error {
+		if e := uc.licenseService.CheckUserSeat(ctx, db); e != nil {
+			return hperrors.Wrap(e)
+		}
 		username, e := userservice.UsernameForEmail(ctx, db, uc.userRepo, req.Email)
 		if e != nil {
 			return hperrors.Wrap(e)

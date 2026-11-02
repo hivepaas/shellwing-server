@@ -4050,6 +4050,124 @@
         "tags" : [ "System errors" ]
       }
     },
+    "/system/license" : {
+      "delete" : {
+        "description" : "The free limit is back. Nobody is removed or locked out: a limit only stops creating.",
+        "operationId" : "removeLicense",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/system_licensedto.RemoveLicenseResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Removes the license key",
+        "tags" : [ "System" ]
+      },
+      "get" : {
+        "description" : "The license in force, this server's ID, and how many of its users' seats are taken.",
+        "operationId" : "getLicense",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/system_licensedto.GetLicenseResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Gets the license in force",
+        "tags" : [ "System" ]
+      },
+      "put" : {
+        "description" : "Verifies the key, offline, and puts it in force. One for another server, or past its grace, is refused.",
+        "operationId" : "installLicense",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/system_licensedto.InstallLicenseReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/system_licensedto.InstallLicenseResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Installs a license key",
+        "tags" : [ "System" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
     "/system/tasks" : {
       "get" : {
         "description" : "Lists tasks",
@@ -5369,9 +5487,9 @@
         "x-enum-varnames" : [ "AuditLogSourceAPIGet", "AuditLogSourceAPICreate", "AuditLogSourceAPIUpdate", "AuditLogSourceAPIDelete", "AuditLogSourceAPIAction" ]
       },
       "base.AuditLogType" : {
-        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout" ],
+        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout", "license-update" ],
         "type" : "string",
-        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout" ]
+        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout", "AuditLogTypeLicenseUpdate" ]
       },
       "base.CloudStorageKind" : {
         "enum" : [ "aws-s3" ],
@@ -5412,9 +5530,9 @@
         "x-enum-varnames" : [ "ResourceCapSecretReveal" ]
       },
       "base.ResourceType" : {
-        "enum" : [ "audit-log", "capability", "cloud-storage", "email", "im-service", "key-auth", "module", "notification", "oauth", "setting", "sys-error", "task", "user" ],
+        "enum" : [ "audit-log", "capability", "cloud-storage", "email", "im-service", "key-auth", "license", "module", "notification", "oauth", "setting", "sys-error", "task", "user" ],
         "type" : "string",
-        "x-enum-varnames" : [ "ResourceTypeAuditLog", "ResourceTypeCapability", "ResourceTypeCloudStorage", "ResourceTypeEmail", "ResourceTypeIMService", "ResourceTypeKeyAuth", "ResourceTypeModule", "ResourceTypeNotification", "ResourceTypeOAuth", "ResourceTypeSetting", "ResourceTypeSysError", "ResourceTypeTask", "ResourceTypeUser" ]
+        "x-enum-varnames" : [ "ResourceTypeAuditLog", "ResourceTypeCapability", "ResourceTypeCloudStorage", "ResourceTypeEmail", "ResourceTypeIMService", "ResourceTypeKeyAuth", "ResourceTypeLicense", "ResourceTypeModule", "ResourceTypeNotification", "ResourceTypeOAuth", "ResourceTypeSetting", "ResourceTypeSysError", "ResourceTypeTask", "ResourceTypeUser" ]
       },
       "base.SettingStatus" : {
         "enum" : [ "active", "pending", "disabled", "expired", "missing" ],
@@ -8481,6 +8599,102 @@
           }
         },
         "required" : [ "bytesUsed", "hostCount", "id", "recordCount", "revision", "type" ],
+        "type" : "object"
+      },
+      "system_licensedto.GetLicenseResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/system_licensedto.LicenseResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "system_licensedto.InstallLicenseReq" : {
+        "properties" : {
+          "key" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "key" ],
+        "type" : "object"
+      },
+      "system_licensedto.InstallLicenseResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/system_licensedto.LicenseResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "system_licensedto.LicenseResp" : {
+        "properties" : {
+          "customerName" : {
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "type" : "string"
+          },
+          "graceEndsAt" : {
+            "type" : "string"
+          },
+          "installationId" : {
+            "type" : "string"
+          },
+          "maxUsers" : {
+            "type" : "integer"
+          },
+          "plan" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "trial" : {
+            "type" : "boolean"
+          },
+          "usedUsers" : {
+            "type" : "integer"
+          }
+        },
+        "required" : [ "expiresAt", "graceEndsAt", "installationId", "maxUsers", "plan", "status", "trial", "usedUsers" ],
+        "type" : "object"
+      },
+      "system_licensedto.RemoveLicenseResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/system_licensedto.LicenseResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
         "type" : "object"
       },
       "system_syserrordto.DeleteSysErrorResp" : {

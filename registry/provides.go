@@ -27,6 +27,7 @@ import (
 	"github.com/hivepaas/shellwing-server/service/auditservice/auditserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/datakeyservice/datakeyserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/emailservice/emailserviceimpl"
+	"github.com/hivepaas/shellwing-server/service/licenseservice/licenseserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/notificationservice/notificationserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/orgservice/orgserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/reslinkservice/reslinkserviceimpl"
@@ -55,6 +56,7 @@ import (
 	"github.com/hivepaas/shellwing-server/usecase/settings/oauthuc"
 	"github.com/hivepaas/shellwing-server/usecase/supportuc"
 	"github.com/hivepaas/shellwing-server/usecase/syncuc"
+	"github.com/hivepaas/shellwing-server/usecase/system/licenseuc"
 	"github.com/hivepaas/shellwing-server/usecase/system/syserroruc"
 	"github.com/hivepaas/shellwing-server/usecase/taskuc"
 	"github.com/hivepaas/shellwing-server/usecase/useruc"
@@ -117,6 +119,7 @@ var Provides = []any{
 	settings.New,
 	supportuc.New,
 	syncuc.New,
+	licenseuc.New,
 	syserroruc.New,
 	taskuc.New,
 	useruc.New,
@@ -125,6 +128,7 @@ var Provides = []any{
 	auditserviceimpl.New,
 	datakeyserviceimpl.New,
 	emailserviceimpl.New,
+	licenseserviceimpl.New,
 	notificationserviceimpl.New,
 	orgserviceimpl.New,
 	reslinkserviceimpl.New,
@@ -147,6 +151,7 @@ var Provides = []any{
 	repository.NewDeviceRepo,
 	repository.NewEncryptionKeyRepo,
 	repository.NewFileRepo,
+	repository.NewLicenseRepo,
 	repository.NewLockRepo,
 	repository.NewLoginTrustedDeviceRepo,
 	repository.NewOrganizationRepo,

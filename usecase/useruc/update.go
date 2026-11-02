@@ -39,6 +39,13 @@ func (uc *UC) UpdateUser(
 		persistingData := &userservice.PersistingUserData{}
 		uc.prepareUpdatingUserData(req, userData, persistingData)
 
+		// A disabled user holds no seat: letting them back in takes one.
+		if before.Status == base.UserStatusDisabled && userData.User.Status != base.UserStatusDisabled {
+			if err = uc.licenseService.CheckUserSeat(ctx, db); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
 		err = uc.authorizeAccessChanges(ctx, db, auth, userData.User,
 			accessResourceTypesToReplace(req.ModuleAccesses != nil, req.Capabilities != nil),
 			persistingData)

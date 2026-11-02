@@ -29,7 +29,16 @@ version migrates. Give it a volume at `/var/lib/shellwing`.
 
 A store that cannot be reached stops the start.
 
-## Backups
+## Users and the license
+
+Up to 2 users are free. A user holds a seat while active or invited; a disabled or deleted one does not. Past the limit
+no new user can be made or let back in, and that is all: nobody is removed or locked out, and every feature keeps
+working, also when a license ends.
+
+A license key lifts the limit. `GET /api/system/license` shows this server's ID, which a key is issued for, and the
+seats taken; `PUT` installs a key, `DELETE` removes it. A key is verified offline: a server never needs the portal to
+run. After a key expires its limit holds for its grace, then the free limit is back.
+
 
 Back up PostgreSQL and the sync store together, database first: content a line needs is written before the line, so
 a store copied after the database has everything the database names. What the store holds beyond that is removed by

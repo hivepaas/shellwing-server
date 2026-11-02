@@ -5,6 +5,7 @@ import (
 	"github.com/hivepaas/shellwing-server/interface/api/handler/auditloghandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/authhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/taskhandler"
+	"github.com/hivepaas/shellwing-server/usecase/system/licenseuc"
 	"github.com/hivepaas/shellwing-server/usecase/system/syserroruc"
 )
 
@@ -14,6 +15,7 @@ type Handler struct {
 	auditLogHandler *auditloghandler.Handler
 	taskHandler     *taskhandler.Handler
 	sysErrorUC      *syserroruc.UC
+	licenseUC       *licenseuc.UC
 }
 
 func New(
@@ -22,6 +24,7 @@ func New(
 	auditLogHandler *auditloghandler.Handler,
 	taskHandler *taskhandler.Handler,
 	sysErrorUC *syserroruc.UC,
+	licenseUC *licenseuc.UC,
 ) *Handler {
 	return &Handler{
 		BaseHandler:     baseHandler,
@@ -29,5 +32,6 @@ func New(
 		auditLogHandler: auditLogHandler,
 		taskHandler:     taskHandler,
 		sysErrorUC:      sysErrorUC,
+		licenseUC:       licenseUC,
 	}
 }
