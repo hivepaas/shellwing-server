@@ -17,6 +17,13 @@ func (s *HTTPServer) registerSystemRoutes(apiGroup *gin.RouterGroup) {
 		taskGroup.GET("/:itemID/logs", systemHandler.GetTaskLogs)
 	}
 
+	{ // License
+		licenseGroup := systemGroup.Group("/license")
+		licenseGroup.GET("", systemHandler.GetLicense)
+		licenseGroup.PUT("", systemHandler.InstallLicense)
+		licenseGroup.DELETE("", systemHandler.RemoveLicense)
+	}
+
 	{ // Error group
 		errorGroup := systemGroup.Group("/errors")
 		errorGroup.GET("", systemHandler.ListSysError)

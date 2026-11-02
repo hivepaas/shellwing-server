@@ -15,6 +15,7 @@ const (
 	ResourceTypeEmail        ResourceType = "email"
 	ResourceTypeIMService    ResourceType = "im-service"
 	ResourceTypeKeyAuth      ResourceType = "key-auth"
+	ResourceTypeLicense      ResourceType = "license"
 	ResourceTypeModule       ResourceType = "module"
 	ResourceTypeNotification ResourceType = "notification"
 	ResourceTypeOAuth        ResourceType = "oauth"

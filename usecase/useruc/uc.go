@@ -7,6 +7,7 @@ import (
 	"github.com/hivepaas/shellwing-server/repository/cacherepository"
 	"github.com/hivepaas/shellwing-server/service/auditservice"
 	"github.com/hivepaas/shellwing-server/service/emailservice"
+	"github.com/hivepaas/shellwing-server/service/licenseservice"
 	"github.com/hivepaas/shellwing-server/service/userservice"
 )
 
@@ -19,9 +20,10 @@ type UC struct {
 	userTokenRepo cacherepository.UserTokenRepo
 	rateLimitRepo cacherepository.RateLimitRepo
 
-	auditService auditservice.Service
-	emailService emailservice.Service
-	userService  userservice.Service
+	auditService   auditservice.Service
+	emailService   emailservice.Service
+	licenseService licenseservice.Service
+	userService    userservice.Service
 
 	permissionManager permission.Manager
 }
@@ -37,6 +39,7 @@ func New(
 
 	auditService auditservice.Service,
 	emailService emailservice.Service,
+	licenseService licenseservice.Service,
 	userService userservice.Service,
 
 	permissionManager permission.Manager,
@@ -50,9 +53,10 @@ func New(
 		userTokenRepo: userTokenRepo,
 		rateLimitRepo: rateLimitRepo,
 
-		auditService: auditService,
-		emailService: emailService,
-		userService:  userService,
+		auditService:   auditService,
+		emailService:   emailService,
+		licenseService: licenseService,
+		userService:    userService,
 
 		permissionManager: permissionManager,
 	}

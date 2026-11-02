@@ -1,0 +1,7 @@
+# Messages for the errors declared in hperrors/errors_license.go.
+# Adding or removing an error there means editing this file.
+
+ERR_PLAN_LIMIT_REACHED = "This server has reached its limit of {{.Max}} users. Disable a user, or install a license for more."
+ERR_LICENSE_KEY_INVALID = "This is not a valid license key for shellwing server"
+ERR_LICENSE_KEY_OTHER_INSTALLATION = "This license key is for another server. This server's ID is {{.InstallationID}}"
+ERR_LICENSE_KEY_EXPIRED = "This license key has expired"

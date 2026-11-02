@@ -101,9 +101,13 @@ const (
 	// after taking one. The two read identically in the moment and differently
 	// afterwards, which is what a trail is for.
 	AuditLogTypeUserLogout AuditLogType = "user-logout"
+
+	// AuditLogTypeLicenseUpdate records a license key being installed or removed, with section naming which.
+	AuditLogTypeLicenseUpdate AuditLogType = "license-update"
 )
 
 var AllAuditLogTypes = []AuditLogType{
+	AuditLogTypeLicenseUpdate,
 	AuditLogTypeSecretReveal,
 	AuditLogTypeUserCreate,
 	AuditLogTypeUserUpdate,

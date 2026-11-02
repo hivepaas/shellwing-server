@@ -93,7 +93,7 @@ func (uc *UC) CompleteSSOSignup(
 }
 
 // makeSSOSignupUser makes the account, records it, and gives it the customer account that waits for its email.
-func (uc *UC) makeSSOSignupUser(ctx context.Context, db database.IDB, claims *appentity.SSOSignupTokenClaims) (
+func (uc *UC) makeSSOSignupUser(ctx context.Context, db database.Tx, claims *appentity.SSOSignupTokenClaims) (
 	*entity.User, error) {
 	existing, err := uc.userRepo.GetByEmail(ctx, db, claims.Email)
 	if err != nil && !errors.Is(err, hperrors.ErrNotFound) {
@@ -102,6 +102,10 @@ func (uc *UC) makeSSOSignupUser(ctx context.Context, db database.IDB, claims *ap
 	if existing != nil {
 		// Made meanwhile - the same link confirmed twice, or a sign-up by email: it signs in as it is.
 		return nil, hperrors.Wrap(hperrors.ErrEmailUnavailable).WithMsgLog("email '%s' has a user", claims.Email)
+	}
+	// db is the transaction that writes the user: see CheckUserSeat.
+	if err = uc.licenseService.CheckUserSeat(ctx, db); err != nil {
+		return nil, hperrors.Wrap(err)
 	}
 	username, err := userservice.UsernameForEmail(ctx, db, uc.userRepo, claims.Email)
 	if err != nil {

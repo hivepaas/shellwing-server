@@ -52,3 +52,4 @@ web_base_url = "http://localhost:4200"
     basic_auth_password = "abc123"
 
 [dev_mode]
+    user_limit = 100

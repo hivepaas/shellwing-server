@@ -38,6 +38,12 @@ func (uc *UC) InviteUser(
 	uc.preparePersistingUserInviteData(req, inviteData, persistingData)
 
 	err = transaction.Execute(ctx, uc.db, func(db database.Tx) error {
+		// Inviting a pending user again takes no new seat.
+		if !inviteData.Existing {
+			if err := uc.licenseService.CheckUserSeat(ctx, db); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
 		err := uc.authorizeAccessChanges(ctx, db, auth, inviteData.User,
 			accessResourceTypesToReplace(true, true), persistingData)
 		if err != nil {
@@ -83,7 +89,9 @@ func (uc *UC) InviteUser(
 }
 
 type userInviteData struct {
-	User        *entity.User
+	User *entity.User
+	// Existing: a pending user invited again, who holds a seat already.
+	Existing    bool
 	InviteLink  string
 	SystemEmail *entity.Email
 }
@@ -123,6 +131,7 @@ func (uc *UC) loadUserInviteData(
 		return hperrors.Wrap(err)
 	}
 
+	data.Existing = user != nil
 	if user == nil {
 		user = &entity.User{
 			ID:        gofn.Must(ulid.NewStringULID()),

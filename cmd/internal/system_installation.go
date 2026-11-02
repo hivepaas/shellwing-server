@@ -16,6 +16,7 @@ import (
 	"github.com/hivepaas/shellwing-server/pkg/timeutil"
 	"github.com/hivepaas/shellwing-server/pkg/transaction"
 	"github.com/hivepaas/shellwing-server/repository"
+	"github.com/hivepaas/shellwing-server/service/licenseservice"
 	"github.com/hivepaas/shellwing-server/service/orgservice"
 	"github.com/hivepaas/shellwing-server/service/settinginitservice"
 	"github.com/hivepaas/shellwing-server/service/userservice"
@@ -28,6 +29,7 @@ func SystemInstallation(
 	sysStatusRepo repository.SystemStatusRepo,
 	userService userservice.Service,
 	orgService orgservice.Service,
+	licenseService licenseservice.Service,
 	settingInitService settinginitservice.Service,
 	logger logging.Logger,
 ) {
@@ -52,6 +54,9 @@ func SystemInstallation(
 				if err = settingInitService.InitDefaults(ctx, db); err != nil {
 					logger.Errorf("failed to initialize default settings: %v", err)
 				}
+			}
+			if err = licenseService.EnsureInstallation(ctx, db); err != nil {
+				return fmt.Errorf("failed to initialize the installation ID: %w", err)
 			}
 			// Every start, as a server may hold users from before there were organizations, or a seed's.
 			if _, err = orgService.EnsureDefaultOrg(ctx, db); err != nil {
