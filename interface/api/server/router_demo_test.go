@@ -13,6 +13,7 @@ import (
 	"github.com/hivepaas/shellwing-server/interface/api/handler/sessionhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/settinghandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/supporthandler"
+	"github.com/hivepaas/shellwing-server/interface/api/handler/synchandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/systemhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/userhandler"
 )
@@ -30,6 +31,7 @@ func allRoutes(t *testing.T) gin.RoutesInfo {
 		imageHandler:    &imagehandler.Handler{},
 		sessionHandler:  &sessionhandler.Handler{},
 		settingHandler:  &settinghandler.Handler{},
+		syncHandler:     &synchandler.Handler{},
 		supportHandler:  &supporthandler.Handler{},
 		systemHandler:   &systemhandler.Handler{},
 		userHandler:     &userhandler.Handler{},

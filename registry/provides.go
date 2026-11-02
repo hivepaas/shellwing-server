@@ -15,6 +15,7 @@ import (
 	"github.com/hivepaas/shellwing-server/interface/api/handler/sessionhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/settinghandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/supporthandler"
+	"github.com/hivepaas/shellwing-server/interface/api/handler/synchandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/systemhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/taskhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/userhandler"
@@ -27,12 +28,14 @@ import (
 	"github.com/hivepaas/shellwing-server/service/datakeyservice/datakeyserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/emailservice/emailserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/notificationservice/notificationserviceimpl"
+	"github.com/hivepaas/shellwing-server/service/orgservice/orgserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/reslinkservice/reslinkserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/scopeservice/scopeserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/settingeventservice/settingeventserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/settinginitservice/settinginitserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/settingservice/settingserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/startupservice/startupserviceimpl"
+	"github.com/hivepaas/shellwing-server/service/syncservice/syncserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/systemeventbusservice/systemeventbusserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/taskservice/taskserviceimpl"
 	"github.com/hivepaas/shellwing-server/service/userservice/userserviceimpl"
@@ -51,6 +54,7 @@ import (
 	"github.com/hivepaas/shellwing-server/usecase/settings/notificationuc"
 	"github.com/hivepaas/shellwing-server/usecase/settings/oauthuc"
 	"github.com/hivepaas/shellwing-server/usecase/supportuc"
+	"github.com/hivepaas/shellwing-server/usecase/syncuc"
 	"github.com/hivepaas/shellwing-server/usecase/system/syserroruc"
 	"github.com/hivepaas/shellwing-server/usecase/taskuc"
 	"github.com/hivepaas/shellwing-server/usecase/useruc"
@@ -94,6 +98,7 @@ var Provides = []any{
 	sessionhandler.New,
 	settinghandler.New,
 	supporthandler.New,
+	synchandler.New,
 	systemhandler.New,
 	taskhandler.New,
 	userhandler.New,
@@ -111,6 +116,7 @@ var Provides = []any{
 	sessionuc.New,
 	settings.New,
 	supportuc.New,
+	syncuc.New,
 	syserroruc.New,
 	taskuc.New,
 	useruc.New,
@@ -120,12 +126,15 @@ var Provides = []any{
 	datakeyserviceimpl.New,
 	emailserviceimpl.New,
 	notificationserviceimpl.New,
+	orgserviceimpl.New,
 	reslinkserviceimpl.New,
 	scopeserviceimpl.New,
 	settingeventserviceimpl.New,
 	settinginitserviceimpl.New,
 	settingserviceimpl.New,
 	startupserviceimpl.New,
+	syncserviceimpl.New,
+	syncserviceimpl.NewStore,
 	systemeventbusserviceimpl.New,
 	taskserviceimpl.New,
 	userserviceimpl.New,
@@ -139,8 +148,11 @@ var Provides = []any{
 	repository.NewFileRepo,
 	repository.NewLockRepo,
 	repository.NewLoginTrustedDeviceRepo,
+	repository.NewOrganizationRepo,
 	repository.NewResLinkRepo,
 	repository.NewSettingRepo,
+	repository.NewSpaceRepo,
+	repository.NewSyncRepo,
 	repository.NewSysErrorRepo,
 	repository.NewSystemStatusRepo,
 	repository.NewTagRepo,

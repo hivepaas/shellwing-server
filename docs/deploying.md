@@ -21,7 +21,16 @@ version migrates. Give it a volume at `/var/lib/shellwing`.
 | `SHW_CACHE_URL` | Redis, as `redis://default:<password>@<host>:6379/0`. |
 | `SHW_HTTP_SERVER_TRUSTED_PROXIES` | The proxy in front of the server. Rate limits count by the client's address, which only a trusted proxy gives. |
 | `SHW_USER_ADMIN_EMAIL`, `SHW_USER_ADMIN_USERNAME`, `SHW_USER_ADMIN_PASSWORD` | The first admin, on the first boot only. Remove them once the admin exists. |
+| `SHW_SYNC_STORE_TYPE` | Where synced files are kept: `local` (the default) or `s3`. |
+| `SHW_SYNC_STORE_PATH` | The folder of the local store. By default, `sync` in the app path. One instance only. |
+| `SHW_SYNC_STORE_ENDPOINT`, `_REGION`, `_BUCKET`, `_PREFIX`, `_PATH_STYLE` | S3-compatible storage, whose bucket must exist. `_PATH_STYLE` is for servers without bucket subdomains. |
+| `SHW_SYNC_STORE_ACCESS_KEY`, `SHW_SYNC_STORE_SECRET_KEY` | Its key. It needs to read, write, delete and list. |
+| `SHW_SYNC_MAX_OBJECT_BYTES`, `SHW_SYNC_MAX_SPACE_BYTES` | The largest file (8 MiB), and what one space may hold (0: no limit). |
+
+A store that cannot be reached stops the start.
 
 ## Backups
 
-Back up PostgreSQL. Redis holds nothing that cannot be lost: people sign in again at worst.
+Back up PostgreSQL and the sync store together, database first: content a line needs is written before the line, so
+a store copied after the database has everything the database names. What the store holds beyond that is removed by
+the server in time. Redis holds nothing that cannot be lost.

@@ -4,6 +4,7 @@ import (
 	"github.com/hivepaas/shellwing-server/permission"
 	"github.com/hivepaas/shellwing-server/repository"
 	"github.com/hivepaas/shellwing-server/repository/cacherepository"
+	"github.com/hivepaas/shellwing-server/service/orgservice"
 	"github.com/hivepaas/shellwing-server/service/userservice"
 )
 
@@ -17,6 +18,7 @@ func New(
 	userTokenRepo cacherepository.UserTokenRepo,
 
 	permissionManager permission.Manager,
+	orgService orgservice.Service,
 ) userservice.Service {
 	return &service{
 		binObjectRepo: binObjectRepo,
@@ -28,6 +30,7 @@ func New(
 		userTokenRepo: userTokenRepo,
 
 		permissionManager: permissionManager,
+		orgService:        orgService,
 	}
 }
 
@@ -41,4 +44,5 @@ type service struct {
 	userTokenRepo cacherepository.UserTokenRepo
 
 	permissionManager permission.Manager
+	orgService        orgservice.Service
 }

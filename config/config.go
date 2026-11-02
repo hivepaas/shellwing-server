@@ -121,6 +121,7 @@ type Config struct {
 	Session    Session    `toml:"session"`
 	Tasks      Tasks      `toml:"tasks"`
 	Security   Security   `toml:"security"`
+	Sync       Sync       `toml:"sync"`
 
 	DevMode DevMode `toml:"dev_mode"`
 }
@@ -233,6 +234,9 @@ func loadConfig(configFile string) (*Config, error) {
 
 	// A misconfigured URL stops the start too: somebody would otherwise meet it first, as a broken link in an email.
 	if err := validateWebBaseURL(config.WebBaseURL); err != nil {
+		return config, err
+	}
+	if err := config.Sync.validate(); err != nil {
 		return config, err
 	}
 

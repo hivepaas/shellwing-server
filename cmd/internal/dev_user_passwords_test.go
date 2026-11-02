@@ -38,7 +38,7 @@ func TestDevModeGivesEveryUserThePassword(t *testing.T) {
 		{ID: "u1", Username: "tiendc", Password: seedHash},
 		{ID: "u2", Username: "member1", Password: seedHash},
 	}}
-	users := userserviceimpl.New(nil, nil, nil, nil, nil, repo, nil, nil)
+	users := userserviceimpl.New(nil, nil, nil, nil, nil, repo, nil, nil, nil)
 
 	count, err := resetUserPasswords(context.Background(), nil, repo, users, "Dev-Shared#2026")
 	assert.NoError(t, err)
@@ -53,7 +53,7 @@ func TestDevModeGivesEveryUserThePassword(t *testing.T) {
 
 func TestDevModeRefusesAWeakSharedPassword(t *testing.T) {
 	repo := &usersInMemory{users: []*entity.User{{ID: "u1", Username: "tiendc"}}}
-	users := userserviceimpl.New(nil, nil, nil, nil, nil, repo, nil, nil)
+	users := userserviceimpl.New(nil, nil, nil, nil, nil, repo, nil, nil, nil)
 
 	_, err := resetUserPasswords(context.Background(), nil, repo, users, "abc123")
 	assert.Error(t, err)

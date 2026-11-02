@@ -23,6 +23,9 @@
     "description" : "Logging in and out, and the session a login opens.",
     "name" : "Sessions"
   }, {
+    "description" : "Syncing a person's encrypted files between their devices.",
+    "name" : "Sync"
+  }, {
     "description" : "The server's users: invitations, sign-up, profiles, passwords and two-factor authentication.",
     "name" : "Users"
   }, {
@@ -2933,6 +2936,417 @@
         },
         "summary" : "Creates a feedback",
         "tags" : [ "Support" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/sync/spaces" : {
+      "get" : {
+        "description" : "The spaces the person syncs, with their revisions and totals. The personal one is made the first time\nthis is called.",
+        "operationId" : "listSyncSpaces",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/syncdto.ListSpacesResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Lists the person's spaces",
+        "tags" : [ "Sync" ]
+      }
+    },
+    "/sync/spaces/{spaceID}/changes" : {
+      "get" : {
+        "description" : "What changed after `since`, oldest first. Pass the answer's `revision` as `since` next time; `more`\nsays to ask again at once. With `since` 0, removed files are left out.",
+        "operationId" : "listSyncChanges",
+        "parameters" : [ {
+          "description" : "space ID",
+          "in" : "path",
+          "name" : "spaceID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "the revision the client has seen",
+          "in" : "query",
+          "name" : "since",
+          "schema" : {
+            "type" : "integer"
+          }
+        }, {
+          "description" : "the most changes to answer with",
+          "in" : "query",
+          "name" : "limit",
+          "schema" : {
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/syncdto.ListChangesResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Lists the files changed after a revision",
+        "tags" : [ "Sync" ]
+      }
+    },
+    "/sync/spaces/{spaceID}/events" : {
+      "get" : {
+        "description" : "A WebSocket. Each message names a revision the space has reached: the client then asks for the changes.\nA message can be lost, so a client also asks when it connects, and every so often.",
+        "operationId" : "streamSyncEvents",
+        "parameters" : [ {
+          "description" : "space ID",
+          "in" : "path",
+          "name" : "spaceID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "101" : {
+            "content" : { },
+            "description" : "Switching Protocols"
+          },
+          "404" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Tells a client when a space changes",
+        "tags" : [ "Sync" ]
+      }
+    },
+    "/sync/spaces/{spaceID}/object" : {
+      "delete" : {
+        "description" : "Removes the file. A file that is not there is no error, unless `If-Match` names a version of it.",
+        "operationId" : "deleteSyncObject",
+        "parameters" : [ {
+          "description" : "space ID",
+          "in" : "path",
+          "name" : "spaceID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "the file's name, such as records/<id>.sw",
+          "in" : "query",
+          "name" : "name",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "remove only this ETag",
+          "in" : "header",
+          "name" : "If-Match",
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/syncdto.DeleteObjectResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Removes a file",
+        "tags" : [ "Sync" ]
+      },
+      "get" : {
+        "description" : "The file's bytes, with its `ETag`. With `If-None-Match` naming that ETag: 304 and no body.",
+        "operationId" : "getSyncObject",
+        "parameters" : [ {
+          "description" : "space ID",
+          "in" : "path",
+          "name" : "spaceID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "the file's name, such as records/<id>.sw",
+          "in" : "query",
+          "name" : "name",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "the ETag the client holds",
+          "in" : "header",
+          "name" : "If-None-Match",
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : { },
+            "description" : "OK"
+          },
+          "304" : {
+            "content" : { },
+            "description" : "Not Modified"
+          },
+          "400" : {
+            "content" : {
+              "application/octet-stream" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "404" : {
+            "content" : {
+              "application/octet-stream" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/octet-stream" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Reads a file",
+        "tags" : [ "Sync" ]
+      },
+      "put" : {
+        "description" : "Writes the body as the file. `If-Match` writes only over that ETag, and `If-None-Match: *` only if there\nis no such file; refused, the answer is 412 with `ERR_SYNC_OBJECT_CHANGED`. Without either the write\ngoes through.",
+        "operationId" : "putSyncObject",
+        "parameters" : [ {
+          "description" : "space ID",
+          "in" : "path",
+          "name" : "spaceID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "the file's name, such as records/<id>.sw",
+          "in" : "query",
+          "name" : "name",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "write only over this ETag",
+          "in" : "header",
+          "name" : "If-Match",
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "* to write only a new file",
+          "in" : "header",
+          "name" : "If-None-Match",
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/octet-stream" : {
+              "schema" : {
+                "type" : "string"
+              }
+            }
+          },
+          "description" : "the file's bytes",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/syncdto.PutObjectResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Conflict"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Writes a file",
+        "tags" : [ "Sync" ],
         "x-codegen-request-body-name" : "body"
       }
     },
@@ -7454,6 +7868,146 @@
           }
         },
         "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "syncdto.ChangesResp" : {
+        "properties" : {
+          "more" : {
+            "type" : "boolean"
+          },
+          "objects" : {
+            "items" : {
+              "$ref" : "#/components/schemas/syncdto.ObjectResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "revision" : {
+            "type" : "integer"
+          }
+        },
+        "required" : [ "more", "objects", "revision" ],
+        "type" : "object"
+      },
+      "syncdto.DeleteObjectResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
+        "type" : "object"
+      },
+      "syncdto.ListChangesResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/syncdto.ChangesResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "syncdto.ListSpacesResp" : {
+        "properties" : {
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/syncdto.SpaceResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "syncdto.ObjectResp" : {
+        "properties" : {
+          "deleted" : {
+            "type" : "boolean"
+          },
+          "etag" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "size" : {
+            "type" : "integer"
+          }
+        },
+        "required" : [ "deleted", "etag", "name", "size" ],
+        "type" : "object"
+      },
+      "syncdto.PutObjectData" : {
+        "properties" : {
+          "etag" : {
+            "type" : "string"
+          },
+          "revision" : {
+            "type" : "integer"
+          }
+        },
+        "required" : [ "etag", "revision" ],
+        "type" : "object"
+      },
+      "syncdto.PutObjectResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/syncdto.PutObjectData"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "syncdto.SpaceResp" : {
+        "properties" : {
+          "bytesUsed" : {
+            "type" : "integer"
+          },
+          "hostCount" : {
+            "type" : "integer"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "recordCount" : {
+            "type" : "integer"
+          },
+          "revision" : {
+            "type" : "integer"
+          },
+          "type" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "bytesUsed", "hostCount", "id", "recordCount", "revision", "type" ],
         "type" : "object"
       },
       "system_syserrordto.DeleteSysErrorResp" : {

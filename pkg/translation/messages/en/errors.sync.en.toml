@@ -1,0 +1,8 @@
+# Messages for the errors declared in hperrors/errors_sync.go.
+# Adding or removing an error there means editing this file.
+
+ERR_SYNC_OBJECT_CHANGED = "The file has changed since it was last read"
+ERR_SYNC_OBJECT_NAME_INVALID = "The name of the file is not one that can be synced"
+ERR_SYNC_RECORD_INVALID = "The record cannot be read, or its name does not match it"
+ERR_SYNC_OBJECT_TOO_LARGE = "The file is too large to sync"
+ERR_SYNC_SPACE_FULL = "The space has no room for this file"

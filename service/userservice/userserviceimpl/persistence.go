@@ -19,6 +19,12 @@ func (s *service) PersistUserData(ctx context.Context, db database.IDB,
 		return hperrors.Wrap(err)
 	}
 
+	// Their membership of the organization
+	err = s.orgService.SyncUsers(ctx, db, persistingData.UpsertingUsers)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
 	// Settings
 	err = s.settingRepo.UpsertMulti(ctx, db, persistingData.UpsertingSettings,
 		entity.SettingUpsertingConflictCols, entity.SettingUpsertingUpdateCols)

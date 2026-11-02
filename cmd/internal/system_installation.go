@@ -16,6 +16,7 @@ import (
 	"github.com/hivepaas/shellwing-server/pkg/timeutil"
 	"github.com/hivepaas/shellwing-server/pkg/transaction"
 	"github.com/hivepaas/shellwing-server/repository"
+	"github.com/hivepaas/shellwing-server/service/orgservice"
 	"github.com/hivepaas/shellwing-server/service/settinginitservice"
 	"github.com/hivepaas/shellwing-server/service/userservice"
 )
@@ -26,6 +27,7 @@ func SystemInstallation(
 	db *database.DB,
 	sysStatusRepo repository.SystemStatusRepo,
 	userService userservice.Service,
+	orgService orgservice.Service,
 	settingInitService settinginitservice.Service,
 	logger logging.Logger,
 ) {
@@ -38,7 +40,7 @@ func SystemInstallation(
 			config.SetInstallationStep(sysStatus.NextStep)
 
 			if sysStatus.NextStep == base.InstallationStepInitData {
-				err = sysInstallationInitData(ctx, db, sysStatusRepo, userService,
+				err = sysInstallationInitData(ctx, db, sysStatusRepo, userService, orgService,
 					settingInitService, logger)
 				if err != nil {
 					return fmt.Errorf("failed to initialize system data: %w", err)
@@ -50,6 +52,10 @@ func SystemInstallation(
 				if err = settingInitService.InitDefaults(ctx, db); err != nil {
 					logger.Errorf("failed to initialize default settings: %v", err)
 				}
+			}
+			// Every start, as a server may hold users from before there were organizations, or a seed's.
+			if _, err = orgService.EnsureDefaultOrg(ctx, db); err != nil {
+				return fmt.Errorf("failed to initialize the default organization: %w", err)
 			}
 			// The data exists, whoever made it: what the first boot needed is
 			// not kept on disk a moment longer.
@@ -77,6 +83,7 @@ func sysInstallationInitData(
 	db *database.DB,
 	sysStatusRepo repository.SystemStatusRepo,
 	userService userservice.Service,
+	orgService orgservice.Service,
 	settingInitService settinginitservice.Service,
 	logger logging.Logger,
 ) error {
@@ -92,6 +99,11 @@ func sysInstallationInitData(
 		config.SetInstallationStep(sysStatus.NextStep)
 		if sysStatus.NextStep == "" {
 			return nil
+		}
+
+		// Before the admin, who becomes its owner.
+		if _, err = orgService.EnsureDefaultOrg(ctx, db); err != nil {
+			return fmt.Errorf("failed to initialize the default organization: %w", err)
 		}
 
 		if err = userService.InitAdminUser(ctx, db); err != nil {

@@ -21,6 +21,12 @@ func (s *service) DeleteUser(ctx context.Context, db database.IDB, user *entity.
 	// Delete ref resources in DB
 	userIDs := []string{user.ID}
 
+	// Their membership of the organization
+	err = s.orgService.RemoveUser(ctx, db, user.ID)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+
 	// ACL permissions related to the user
 	err = s.permissionManager.DeleteACLPermissionsByObjects(ctx, db, userIDs)
 	if err != nil {
