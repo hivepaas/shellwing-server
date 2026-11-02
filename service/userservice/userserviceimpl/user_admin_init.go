@@ -49,5 +49,5 @@ func (s *service) InitAdminUser(
 	if err != nil {
 		return hperrors.Wrap(err)
 	}
-	return nil
+	return hperrors.Wrap(s.orgService.MakeOwner(ctx, db, user))
 }

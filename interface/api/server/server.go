@@ -67,6 +67,8 @@ type HTTPServer struct {
 //
 // @tag.name Sessions
 // @tag.description Logging in and out, and the session a login opens.
+// @tag.name Sync
+// @tag.description Syncing a person's encrypted files between their devices.
 // @tag.name Users
 // @tag.description The server's users: invitations, sign-up, profiles, passwords and two-factor authentication.
 // @tag.name Global settings

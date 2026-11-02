@@ -4,6 +4,7 @@ import { match } from "oxide.ts";
 
 import { AuthenticationApiContext } from "@application/authentication/api/api-context";
 import {
+    type Auth_AuthorizeDevice_Req,
     type Auth_CompleteSsoSignup_Req,
     type Auth_ForgotPassword_Req,
     type Auth_RequestSignUp_Req,
@@ -159,6 +160,27 @@ function createHook() {
                         Err: error => {
                             notifyError({
                                 message: "Code verification failed",
+                                error,
+                            });
+
+                            throw error;
+                        },
+                    });
+                },
+
+                /**
+                 * Authorize device
+                 */
+                authorizeDevice: async (data: Auth_AuthorizeDevice_Req["data"]) => {
+                    const result = await api.auth.authorizeDevice({
+                        data,
+                    });
+
+                    return match(result, {
+                        Ok: _ => _,
+                        Err: error => {
+                            notifyError({
+                                message: "The device could not be signed in",
                                 error,
                             });
 

@@ -36,3 +36,8 @@ platform = "remote"
 [session]
     # jwt_secret: SHW_SESSION_JWT_SECRET, 64 hex characters.
     # basic_auth_username and basic_auth_password stay empty: they guard development-only routes.
+
+[sync]
+    # Where synced files are kept: a volume at the app path by default, in "sync". For more than one instance use
+    # S3-compatible storage: SHW_SYNC_STORE_TYPE=s3, with SHW_SYNC_STORE_ENDPOINT, _REGION, _BUCKET, _PREFIX and
+    # _PATH_STYLE, and the key: SHW_SYNC_STORE_ACCESS_KEY and SHW_SYNC_STORE_SECRET_KEY.

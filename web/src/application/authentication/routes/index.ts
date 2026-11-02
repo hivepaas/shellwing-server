@@ -6,3 +6,4 @@ export * from "./sign-up";
 export * from "./create-account";
 export * from "./sso";
 export * from "./sso-sign-up";
+export * from "./connect-device";

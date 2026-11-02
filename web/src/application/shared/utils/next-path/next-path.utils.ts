@@ -40,7 +40,7 @@ export function parseSameOriginUrl(path: string | null): URL | null {
 
 /**
  * Whether a path on this origin still reads as one to whatever reads it next:
- * the browser, or the server server, which holds a `next` it mails to the same
+ * the browser, or the server, which holds a `next` it mails to the same
  * rules. "/.//example.com" is on this origin, yet parses to "//example.com",
  * which a browser takes for another host; a backslash can read as a slash; and
  * a broken escape fails a stricter parser.

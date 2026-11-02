@@ -1,4 +1,5 @@
 import {
+    type AuthorizeDevice,
     type Candidate,
     type ForgotPassword,
     type LoginOption,
@@ -98,6 +99,12 @@ export type Auth_SignIn2FA_Res = ApiResponseBase<{
 /**
  * Forgot password
  */
+export type Auth_AuthorizeDevice_Req = ApiRequestBase<AuthorizeDevice>;
+
+export type Auth_AuthorizeDevice_Res = ApiResponseBase<{
+    redirectUrl: string;
+}>;
+
 export type Auth_ForgotPassword_Req = ApiRequestBase<ForgotPassword>;
 
 export type Auth_ForgotPassword_Res = ApiResponseBase<{

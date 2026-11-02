@@ -27,6 +27,7 @@ func main() {
 		fx.Invoke(internal.DevResetUserPasswords),
 		fx.Invoke(internal.InitSystemSettings),
 		fx.Invoke(internal.InitSystemEventBus),
+		fx.Invoke(internal.InitSync),
 		fx.Invoke(internal.InitTaskQueue),
 		fx.Invoke(internal.InitJWTSession),
 		fx.Invoke(internal.InitHTTPServer),

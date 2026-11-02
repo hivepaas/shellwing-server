@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
 	"github.com/hivepaas/shellwing-server/usecase/sessionuc/sessiondto"
 )
 
@@ -15,6 +16,12 @@ func (uc *UC) DeleteAllSessions(
 	err = uc.userTokenRepo.DelAll(ctx, req.User.AuthClaims.UserID)
 	if err != nil {
 		return nil, hperrors.Wrap(err).WithMsgLog("failed to invalidate old token")
+	}
+
+	// Its apps too: a device would otherwise be given a new token at its next refresh.
+	err = uc.deviceRepo.RevokeAllOfUser(ctx, uc.db, req.User.AuthClaims.UserID, timeutil.NowUTC())
+	if err != nil {
+		return nil, hperrors.Wrap(err)
 	}
 
 	// After the tokens are dead, so what is recorded is what happened. Worth more

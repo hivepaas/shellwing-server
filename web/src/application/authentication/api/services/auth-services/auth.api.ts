@@ -4,6 +4,8 @@ import { catchError, from, lastValueFrom, map, of } from "rxjs";
 
 import {
     type AuthApiValidator,
+    type Auth_AuthorizeDevice_Req,
+    type Auth_AuthorizeDevice_Res,
     type Auth_CompleteSsoSignup_Req,
     type Auth_CompleteSsoSignup_Res,
     type Auth_ForgotPassword_Req,
@@ -167,6 +169,16 @@ export class AuthApi extends BaseApi {
     /**
      * Forgot password
      */
+    async authorizeDevice(request: Auth_AuthorizeDevice_Req): Promise<Result<Auth_AuthorizeDevice_Res, Error>> {
+        return lastValueFrom(
+            from(this.client.v1.post("/devices/authorize", request.data)).pipe(
+                map(this.validator.authorizeDevice),
+                map(res => Ok(res)),
+                catchError(error => of(Err(parseApiError(error)))),
+            ),
+        );
+    }
+
     async forgotPassword(request: Auth_ForgotPassword_Req): Promise<Result<Auth_ForgotPassword_Res, Error>> {
         return lastValueFrom(
             from(

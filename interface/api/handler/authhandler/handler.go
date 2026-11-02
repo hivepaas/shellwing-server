@@ -10,6 +10,7 @@ import (
 	"github.com/hivepaas/shellwing-server/hperrors"
 	"github.com/hivepaas/shellwing-server/interface/api/handler"
 	"github.com/hivepaas/shellwing-server/permission"
+	"github.com/hivepaas/shellwing-server/pkg/jwtsession"
 	"github.com/hivepaas/shellwing-server/usecase/sessionuc"
 )
 
@@ -48,6 +49,9 @@ func (h *Handler) GetCurrentUser(ctx *gin.Context) (*basedto.User, error) {
 	if err = refuseDemo(ctx, user); err != nil {
 		return nil, err
 	}
+	if err = refuseScoped(user); err != nil {
+		return nil, err
+	}
 	return user, nil
 }
 
@@ -76,10 +80,39 @@ func (h *Handler) GetCurrentUserByToken(ctx *gin.Context, token string) (*basedt
 	return user, nil
 }
 
+// refuseScoped stops a token narrowed to one purpose everywhere but the handlers of that purpose. It is the default,
+// so that a handler added later is closed to an app's token unless it asks for it.
+func refuseScoped(user *basedto.User) error {
+	if user != nil && user.AuthClaims != nil && user.AuthClaims.Scope != "" {
+		return hperrors.Wrap(hperrors.ErrScopeNotAllowed)
+	}
+	return nil
+}
+
+// GetSyncAuth is the caller's auth for what an app's token may reach: a person signed in, or their app.
+func (h *Handler) GetSyncAuth(ctx *gin.Context) (*basedto.Auth, error) {
+	auth, err := h.getCurrentAuth(ctx)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if err = h.sessionUC.VerifyAuth(ctx, auth, NoAccessCheck); err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if scope := auth.User.AuthClaims.Scope; scope != "" && scope != jwtsession.ScopeSync {
+		return nil, hperrors.Wrap(hperrors.ErrScopeNotAllowed)
+	}
+	return auth, nil
+}
+
 func (h *Handler) GetCurrentAuth(ctx *gin.Context, accessCheck permission.AccessCheck) (*basedto.Auth, error) {
 	auth, err := h.getCurrentAuth(ctx)
 	if err != nil {
 		return auth, hperrors.Wrap(err) // NOTE: on error, still return `auth`
+	}
+	if auth != nil {
+		if err = refuseScoped(auth.User); err != nil {
+			return nil, err
+		}
 	}
 
 	if err = h.sessionUC.VerifyAuth(ctx, auth, accessCheck); err != nil {
