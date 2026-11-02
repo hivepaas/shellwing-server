@@ -80,6 +80,17 @@ func TestADevelopmentKeyIsRefusedOutsideDevelopment(t *testing.T) {
 	require.ErrorIs(t, err, ErrKeyInvalid)
 }
 
+// A production server trusts the pair the portal signs every product's keys with, and no other.
+func TestAProductionServerTrustsTheSharedPair(t *testing.T) {
+	verifier, err := Embedded(false)
+	require.NoError(t, err)
+	algs := map[string]string{}
+	for _, key := range verifier.keys {
+		algs[key.id] = key.alg
+	}
+	assert.Equal(t, map[string]string{"lic-2026-ed": AlgEd25519, "lic-2026-ml": AlgMLDSA65}, algs)
+}
+
 func TestValidate(t *testing.T) {
 	good := func() *Payload {
 		return &Payload{Version: 1, LicenseID: "l", Plan: "team-10", Installations: []string{"i"},
