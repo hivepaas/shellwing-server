@@ -39,6 +39,37 @@ A license key lifts the limit. `GET /api/system/license` shows this server's ID,
 seats taken; `PUT` installs a key, `DELETE` removes it. A key is verified offline: a server never needs the portal to
 run. After a key expires its limit holds for its grace, then the free limit is back.
 
+## SSH certificates
+
+The server can sign short-lived SSH certificates, so that nobody shares a private key and removing a person means they
+get no new ones. An organization has none of this until an admin sets it up.
+
+1. An admin makes the certificate authority: `POST /api/orgs/{org}/ssh/cas`. The organization's ID is in `GET /api/orgs`.
+2. Each target server trusts its public key, with the `publicKey` of `GET /api/orgs/{org}/ssh/cas`:
+
+   ```
+   # /etc/ssh/sshd_config
+   TrustedUserCAKeys /etc/ssh/shellwing_ca.pub
+   ```
+
+3. An admin grants each person the accounts they may log in as:
+   `PUT /api/orgs/{org}/ssh/members/{user}/principals` with `{"principals": ["deploy"]}`. Nobody has any until granted,
+   owners included. A username is never one by itself: whoever could take the name `root` would get root on every server.
+
+A certificate lasts 8 hours unless `PUT /api/orgs/{org}/ssh/settings` says otherwise, from 5 minutes to a day. Each one
+signed is in the audit log (`ssh-cert-issue`), and `sshd` logs the person and device of each login.
+
+**Taking access away.** A certificate cannot be revoked. Removing a person's accounts, or disabling them, stops new ones;
+revoking a device stops new ones on that device. The ones they hold work until they end, so keep the lifetime short.
+
+**Replacing the authority.** Making a new one retires the old at once, and destroys its private key: from then on
+certificates are signed by the new one only. Add its public key to the target servers beside the old one straight away,
+and remove the old one when its last certificates have ended. If the key may have leaked, remove the old one first.
+
+**The private key** is in PostgreSQL, sealed with the server's data key like any stored secret. Anybody with both the
+database and the app secret can sign for every account the target servers let a certificate reach, so treat a backup of
+them as you would the target servers' root.
+
 
 Back up PostgreSQL and the sync store together, database first: content a line needs is written before the line, so
 a store copied after the database has everything the database names. What the store holds beyond that is removed by

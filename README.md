@@ -1,7 +1,7 @@
 # shellwing server
 
 The server of [shellwing](https://github.com/hivepaas/shellwing): it syncs each person's encrypted data between their
-devices, and (planned) issues short-lived SSH certificates. It never reads what it syncs: encryption keys stay on the
+devices, and issues short-lived SSH certificates. It never reads what it syncs: encryption keys stay on the
 devices.
 
 **Status: early work, not ready to run in production.** The sync API works; the app does not use it yet, and the

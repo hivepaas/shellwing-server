@@ -853,6 +853,535 @@
         "tags" : [ "Images" ]
       }
     },
+    "/orgs" : {
+      "get" : {
+        "description" : "The organizations the person is an active member of, with their role and the accounts their SSH\ncertificates may log in as.",
+        "operationId" : "listOrgs",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.ListOrgsResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Lists the person's organizations",
+        "tags" : [ "Organizations" ]
+      }
+    },
+    "/orgs/{orgID}/ssh/cas" : {
+      "get" : {
+        "description" : "Their public keys, for sshd's TrustedUserCAKeys. A retired one signs no more, and is listed until\ndeleted so that servers trusting it can be moved over.",
+        "operationId" : "listSSHCAs",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.ListSSHCAsResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Lists the organization's SSH certificate authorities",
+        "tags" : [ "Organizations" ]
+      },
+      "post" : {
+        "description" : "The new one signs from now on. One before it is retired and its private key destroyed. Certificates\nsigned from now on work only on servers that trust the new one.",
+        "operationId" : "createSSHCA",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.CreateSSHCAResp"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Makes a new SSH certificate authority",
+        "tags" : [ "Organizations" ]
+      }
+    },
+    "/orgs/{orgID}/ssh/cas/{caID}" : {
+      "delete" : {
+        "description" : "The active one is replaced, not deleted.",
+        "operationId" : "deleteSSHCA",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "certificate authority ID",
+          "in" : "path",
+          "name" : "caID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.DeleteSSHCAResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Deletes a retired SSH certificate authority",
+        "tags" : [ "Organizations" ]
+      }
+    },
+    "/orgs/{orgID}/ssh/certificates" : {
+      "post" : {
+        "description" : "A short-lived certificate for the accounts an admin granted them. The private key stays on the device.\nEach one is recorded in the audit log.",
+        "operationId" : "issueSSHCertificate",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.IssueSSHCertificateReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.IssueSSHCertificateResp"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Signs the person's SSH public key",
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/orgs/{orgID}/ssh/members/{userID}/principals" : {
+      "get" : {
+        "description" : "What an admin granted them.",
+        "operationId" : "getSSHPrincipals",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "user ID",
+          "in" : "path",
+          "name" : "userID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.SSHPrincipalsResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Gets the accounts a member's SSH certificates may log in as",
+        "tags" : [ "Organizations" ]
+      },
+      "put" : {
+        "description" : "Replaces them, from the next certificate on. Empty takes them all away. Nobody has any until granted.",
+        "operationId" : "setSSHPrincipals",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "user ID",
+          "in" : "path",
+          "name" : "userID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.SetSSHPrincipalsReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.SSHPrincipalsResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Sets the accounts a member's SSH certificates may log in as",
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/orgs/{orgID}/ssh/settings" : {
+      "put" : {
+        "description" : "From 5 minutes to a day. Certificates signed already keep their end.",
+        "operationId" : "updateSSHSettings",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.UpdateSSHSettingsReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.UpdateSSHSettingsResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Sets how long the organization's SSH certificates last",
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
     "/sessions" : {
       "delete" : {
         "description" : "Deletes the current user session",
@@ -5487,9 +6016,9 @@
         "x-enum-varnames" : [ "AuditLogSourceAPIGet", "AuditLogSourceAPICreate", "AuditLogSourceAPIUpdate", "AuditLogSourceAPIDelete", "AuditLogSourceAPIAction" ]
       },
       "base.AuditLogType" : {
-        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout", "license-update" ],
+        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout", "license-update", "ssh-ca-update", "ssh-cert-issue" ],
         "type" : "string",
-        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout", "AuditLogTypeLicenseUpdate" ]
+        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout", "AuditLogTypeLicenseUpdate", "AuditLogTypeSSHCAUpdate", "AuditLogTypeSSHCertIssue" ]
       },
       "base.CloudStorageKind" : {
         "enum" : [ "aws-s3" ],
@@ -5521,6 +6050,11 @@
         "type" : "string",
         "x-enum-varnames" : [ "OAuthKindGithub", "OAuthKindGithubApp", "OAuthKindGitlab", "OAuthKindGitea", "OAuthKindGoogle", "OAuthKindMicrosoftOnline", "OAuthKindOpenIDConnect" ]
       },
+      "base.OrgRole" : {
+        "enum" : [ "owner", "admin", "member" ],
+        "type" : "string",
+        "x-enum-varnames" : [ "OrgRoleOwner", "OrgRoleAdmin", "OrgRoleMember" ]
+      },
       "base.ResourceCapability" : {
         "enum" : [ "cap::secret::reveal" ],
         "type" : "string",
@@ -5530,9 +6064,14 @@
         "x-enum-varnames" : [ "ResourceCapSecretReveal" ]
       },
       "base.ResourceType" : {
-        "enum" : [ "audit-log", "capability", "cloud-storage", "email", "im-service", "key-auth", "license", "module", "notification", "oauth", "setting", "sys-error", "task", "user" ],
+        "enum" : [ "audit-log", "capability", "cloud-storage", "email", "im-service", "key-auth", "license", "ssh-ca", "ssh-certificate", "org-member", "organization", "module", "notification", "oauth", "setting", "sys-error", "task", "user" ],
         "type" : "string",
-        "x-enum-varnames" : [ "ResourceTypeAuditLog", "ResourceTypeCapability", "ResourceTypeCloudStorage", "ResourceTypeEmail", "ResourceTypeIMService", "ResourceTypeKeyAuth", "ResourceTypeLicense", "ResourceTypeModule", "ResourceTypeNotification", "ResourceTypeOAuth", "ResourceTypeSetting", "ResourceTypeSysError", "ResourceTypeTask", "ResourceTypeUser" ]
+        "x-enum-varnames" : [ "ResourceTypeAuditLog", "ResourceTypeCapability", "ResourceTypeCloudStorage", "ResourceTypeEmail", "ResourceTypeIMService", "ResourceTypeKeyAuth", "ResourceTypeLicense", "ResourceTypeSSHCA", "ResourceTypeSSHCert", "ResourceTypeOrgMember", "ResourceTypeOrganization", "ResourceTypeModule", "ResourceTypeNotification", "ResourceTypeOAuth", "ResourceTypeSetting", "ResourceTypeSysError", "ResourceTypeTask", "ResourceTypeUser" ]
+      },
+      "base.SSHCAStatus" : {
+        "enum" : [ "active", "retired" ],
+        "type" : "string",
+        "x-enum-varnames" : [ "SSHCAStatusActive", "SSHCAStatusRetired" ]
       },
       "base.SettingStatus" : {
         "enum" : [ "active", "pending", "disabled", "expired", "missing" ],
@@ -5921,6 +6460,225 @@
           }
         },
         "required" : [ "id", "type" ],
+        "type" : "object"
+      },
+      "orgdto.CreateSSHCAResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/orgdto.SSHCAResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "orgdto.DeleteSSHCAResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
+        "type" : "object"
+      },
+      "orgdto.IssueSSHCertificateReq" : {
+        "properties" : {
+          "publicKey" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "publicKey" ],
+        "type" : "object"
+      },
+      "orgdto.IssueSSHCertificateResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/orgdto.SSHCertificateResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "orgdto.ListOrgsResp" : {
+        "properties" : {
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/orgdto.OrgResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "orgdto.ListSSHCAsResp" : {
+        "properties" : {
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/orgdto.SSHCAResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "orgdto.OrgResp" : {
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "role" : {
+            "$ref" : "#/components/schemas/base.OrgRole"
+          },
+          "slug" : {
+            "type" : "string"
+          },
+          "sshCertTtlMinutes" : {
+            "type" : "integer"
+          },
+          "sshPrincipals" : {
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "id", "name", "role", "slug", "sshCertTtlMinutes", "sshPrincipals" ],
+        "type" : "object"
+      },
+      "orgdto.SSHCAResp" : {
+        "properties" : {
+          "createdAt" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "publicKey" : {
+            "type" : "string"
+          },
+          "retiredAt" : {
+            "type" : "string"
+          },
+          "status" : {
+            "$ref" : "#/components/schemas/base.SSHCAStatus"
+          }
+        },
+        "required" : [ "createdAt", "id", "publicKey", "retiredAt", "status" ],
+        "type" : "object"
+      },
+      "orgdto.SSHCertificateResp" : {
+        "properties" : {
+          "certificate" : {
+            "type" : "string"
+          },
+          "principals" : {
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "validAfter" : {
+            "type" : "string"
+          },
+          "validBefore" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "certificate", "principals", "validAfter", "validBefore" ],
+        "type" : "object"
+      },
+      "orgdto.SSHPrincipalsResp" : {
+        "properties" : {
+          "data" : {
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "orgdto.SetSSHPrincipalsReq" : {
+        "properties" : {
+          "principals" : {
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "principals" ],
+        "type" : "object"
+      },
+      "orgdto.UpdateSSHSettingsReq" : {
+        "properties" : {
+          "certTtlMinutes" : {
+            "type" : "integer"
+          }
+        },
+        "required" : [ "certTtlMinutes" ],
+        "type" : "object"
+      },
+      "orgdto.UpdateSSHSettingsResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
         "type" : "object"
       },
       "sessiondto.AuthorizeDeviceData" : {

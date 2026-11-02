@@ -23,3 +23,18 @@ var (
 	// ErrScopeNotAllowed refuses a token narrowed to sync anywhere else.
 	ErrScopeNotAllowed = NewErr(ErrForbidden, "ERR_SCOPE_NOT_ALLOWED")
 )
+
+// Errors for SSH certificates. A rule that refuses is 412, as for the limit of users: none is about who is asking.
+var (
+	// ErrSSHCANotSetUp is an organization with no active CA: an admin makes one.
+	ErrSSHCANotSetUp = NewErr(ErrPreconditionFailed, "ERR_SSH_CA_NOT_SET_UP")
+	// ErrSSHCAActive refuses deleting the CA that signs: making a new one retires it.
+	ErrSSHCAActive = NewErr(ErrPreconditionFailed, "ERR_SSH_CA_ACTIVE")
+	// ErrSSHNoPrincipals is a person with no account a certificate could log in as: an admin grants them.
+	ErrSSHNoPrincipals = NewErr(ErrPreconditionFailed, "ERR_SSH_NO_PRINCIPALS")
+	// ErrSSHPublicKeyInvalid is a text that is no public key, or a kind or size of one that is not signed.
+	ErrSSHPublicKeyInvalid = NewErr(ErrArgumentInvalid, "ERR_SSH_PUBLIC_KEY_INVALID")
+	// ErrSSHPrincipalInvalid is a name no account could have, or that would mean something else in a server's
+	// configuration. Its param Name is the name.
+	ErrSSHPrincipalInvalid = NewErr(ErrArgumentInvalid, "ERR_SSH_PRINCIPAL_INVALID")
+)

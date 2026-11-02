@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS organizations
     name       VARCHAR(255) NOT NULL,
     status     VARCHAR NOT NULL CONSTRAINT chk_status CHECK
                    (status IN ('active','disabled')) DEFAULT 'active',
+    -- How long a certificate its CA signs lasts.
+    ssh_cert_ttl_minutes INT4 NOT NULL CONSTRAINT chk_ssh_cert_ttl CHECK
+                   (ssh_cert_ttl_minutes BETWEEN 5 AND 1440) DEFAULT 480,
     update_ver INT4 NOT NULL DEFAULT 1,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
