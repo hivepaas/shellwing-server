@@ -29,8 +29,8 @@ Tests that need real servers skip without them: `SHW_TEST_PG_DSN`, a PostgreSQL 
 `SHW_TEST_S3_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`. `scripts/e2e.sh` runs the app's tests that need a
 server against one of its own, on a database it makes and removes; it needs the app checked out next to this one.
 
-While nothing is released, migrations are edited in place rather than added to; run `make seed-data-with-clear` after
-each change. The web app is in [web/](web/README.md).
+A migration in a release (v0.1.0 on) is never edited, since servers have run it: a change is a new migration, and
+CI refuses an edit. `make seed-data-with-clear` makes the local database again. The web app is in [web/](web/README.md).
 
 ## License
 
