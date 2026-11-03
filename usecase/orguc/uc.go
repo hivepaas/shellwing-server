@@ -223,6 +223,22 @@ func (uc *UC) UpdateSSHSettings(ctx context.Context, auth *basedto.Auth, orgID s
 }
 
 // GetSSHPrincipals returns the accounts a member's certificates may log in as.
+// ListMembers lists the organization's members, for an admin granting them accounts.
+func (uc *UC) ListMembers(ctx context.Context, auth *basedto.Auth, orgID string) (*orgdto.ListMembersResp, error) {
+	if err := uc.requireAdmin(ctx, uc.db, auth, orgID); err != nil {
+		return nil, err
+	}
+	members, err := uc.orgRepo.ListMembers(ctx, uc.db, orgID)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	data := make([]*orgdto.MemberResp, 0, len(members))
+	for _, m := range members {
+		data = append(data, orgdto.TransformMember(m))
+	}
+	return &orgdto.ListMembersResp{Data: data}, nil
+}
+
 func (uc *UC) GetSSHPrincipals(ctx context.Context, auth *basedto.Auth, orgID, userID string) (
 	*orgdto.SSHPrincipalsResp, error) {
 	if err := uc.requireAdmin(ctx, uc.db, auth, orgID); err != nil {

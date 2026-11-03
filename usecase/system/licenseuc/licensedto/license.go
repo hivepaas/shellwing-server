@@ -13,12 +13,14 @@ import (
 // maxKeyLen bounds the text taken as a key: a key is a few kilobytes.
 const maxKeyLen = 32 << 10
 
-// LicenseResp is the license in force, and the seats taken. MaxUsers -1: no limit.
+// LicenseResp is the license in force, and the seats taken. MaxUsers -1: no limit. FreeUsers is the limit with no
+// license in force, which is back when one ends.
 type LicenseResp struct {
 	Status         string    `json:"status"`
 	InstallationID string    `json:"installationId"`
 	Plan           string    `json:"plan"`
 	MaxUsers       int       `json:"maxUsers"`
+	FreeUsers      int       `json:"freeUsers"`
 	UsedUsers      int       `json:"usedUsers"`
 	Trial          bool      `json:"trial"`
 	CustomerName   string    `json:"customerName,omitempty"`
@@ -32,6 +34,7 @@ func TransformLicense(state *licenseservice.State, usedUsers int) *LicenseResp {
 		InstallationID: state.InstallationID,
 		Plan:           state.Plan,
 		MaxUsers:       state.MaxUsers,
+		FreeUsers:      state.FreeUsers,
 		UsedUsers:      usedUsers,
 		GraceEndsAt:    state.GraceEndsAt,
 	}

@@ -173,6 +173,32 @@ func (h *Handler) UpdateSSHSettings(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, resp)
 }
 
+// ListMembers lists the organization's members
+// @Summary Lists the organization's members
+// @Description Who they are, their role and the accounts their SSH certificates may log in as, by username. For admins.
+// @Tags    Organizations
+// @Produce json
+// @Id      listOrgMembers
+// @Param   orgID path string true "organization ID"
+// @Success 200 {object} orgdto.ListMembersResp
+// @Failure 403 {object} hperrors.ErrorInfo
+// @Failure 404 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /orgs/{orgID}/members [get]
+func (h *Handler) ListMembers(ctx *gin.Context) {
+	auth, err := h.adminAuth(ctx)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	resp, err := h.orgUC.ListMembers(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID))
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, resp)
+}
+
 // GetSSHPrincipals gets the accounts a member may log in as
 // @Summary Gets the accounts a member's SSH certificates may log in as
 // @Description What an admin granted them.

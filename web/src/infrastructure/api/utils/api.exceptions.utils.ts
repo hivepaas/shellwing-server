@@ -148,3 +148,13 @@ export function isTransientException(error: Error): boolean {
 export function isSessionOverException(error: Error): boolean {
     return error instanceof HttpException && error.status >= 400 && error.status < 500;
 }
+
+/**
+ * Check if the error is a name refused as an SSH account (a principal)
+ *
+ * The server checks each name it is given and refuses the first it cannot grant;
+ * its message names it. The form the names were typed in shows it beside them.
+ */
+export function isSshPrincipalInvalidException(error: Error): error is HttpException {
+    return isHttpException(error) && error.code === "ERR_SSH_PRINCIPAL_INVALID";
+}

@@ -17,6 +17,8 @@ type State struct {
 	Plan string
 	// MaxUsers is the limit in force, or base.NoUserLimit.
 	MaxUsers int
+	// FreeUsers is the limit with no license in force: what is back when one ends.
+	FreeUsers int
 	// Key is what the key says whenever it verified, also when it is not in force.
 	Key         *licensesig.Payload
 	GraceEndsAt time.Time

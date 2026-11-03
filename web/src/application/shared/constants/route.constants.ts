@@ -188,6 +188,30 @@ export const ROUTE = {
     },
 
     /**
+     * Organization: what its owners and admins manage
+     */
+    organization: {
+        $pattern: "organization",
+
+        sshCertificates: {
+            $pattern: "organization/ssh-certificates",
+            $route: "/organization/ssh-certificates/",
+        },
+    },
+
+    /**
+     * System: the server's own settings
+     */
+    system: {
+        $pattern: "system",
+
+        license: {
+            $pattern: "system/license",
+            $route: "/system/license/",
+        },
+    },
+
+    /**
      * Operations
      */
     operations: {

@@ -1,6 +1,8 @@
 import { createContext } from "react";
 
 import {
+    OrgsApi,
+    OrgsApiValidator,
     ProfileApi,
     ProfileApiValidator,
     SessionApi,
@@ -13,6 +15,7 @@ function createApplicationApi() {
     return {
         profile: new ProfileApi(new ProfileApiValidator()),
         session: new SessionApi(new SessionApiValidator()),
+        orgs: new OrgsApi(new OrgsApiValidator()),
         support: {
             feedbacks: new SupportFeedbacksApi(new SupportFeedbacksApiValidator()),
         },

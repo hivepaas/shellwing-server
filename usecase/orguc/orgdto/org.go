@@ -95,6 +95,38 @@ type UpdateSSHSettingsResp struct {
 	Meta *basedto.Meta `json:"meta"`
 }
 
+// MemberResp is a member of the organization as an admin sees them: who they are, and what they may log in as.
+type MemberResp struct {
+	UserID        string               `json:"userId"`
+	Username      string               `json:"username"`
+	Email         string               `json:"email"`
+	FullName      string               `json:"fullName"`
+	Role          base.OrgRole         `json:"role"`
+	Status        base.OrgMemberStatus `json:"status"`
+	SSHPrincipals []string             `json:"sshPrincipals"`
+}
+
+func TransformMember(m *entity.OrgMemberUser) *MemberResp {
+	principals := m.SSHPrincipals
+	if principals == nil {
+		principals = []string{}
+	}
+	return &MemberResp{
+		UserID:        m.UserID,
+		Username:      m.Username,
+		Email:         m.Email,
+		FullName:      m.FullName,
+		Role:          m.Role,
+		Status:        m.Status,
+		SSHPrincipals: principals,
+	}
+}
+
+type ListMembersResp struct {
+	Meta *basedto.Meta `json:"meta"`
+	Data []*MemberResp `json:"data"`
+}
+
 type SSHPrincipalsResp struct {
 	Meta *basedto.Meta `json:"meta"`
 	Data []string      `json:"data"`

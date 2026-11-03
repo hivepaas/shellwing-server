@@ -7,7 +7,9 @@ import { ModuleLayout } from "@application/shared/layouts/module";
 import { Page404NotFound } from "@application/shared/pages";
 
 import { operationsRouter } from "./operations";
+import { organizationRouter } from "./organization";
 import { settingsRouter } from "./settings/settings.router";
+import { systemSettingsRouter } from "./system-settings";
 import { userManagementRouter } from "./user-management/user-management.router";
 
 export const modulesRouter: RouteObject = {
@@ -37,5 +39,7 @@ export const modulesRouter: RouteObject = {
         userManagementRouter,
         settingsRouter,
         operationsRouter,
+        organizationRouter,
+        systemSettingsRouter,
     ],
 } as const;

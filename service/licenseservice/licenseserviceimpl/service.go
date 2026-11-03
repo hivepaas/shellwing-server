@@ -71,6 +71,7 @@ func evaluate(installationID string, key *licensesig.Payload, verifyErr error, h
 		Status:         base.LicenseStatusNone,
 		InstallationID: installationID,
 		MaxUsers:       freeUserLimit(),
+		FreeUsers:      freeUserLimit(),
 	}
 	if !hasKey {
 		return state

@@ -77,6 +77,7 @@ func TestEvaluate(t *testing.T) {
 	state := evaluate("here", key(), nil, true, before)
 	assert.Equal(t, base.LicenseStatusValid, state.Status)
 	assert.Equal(t, 10, state.MaxUsers)
+	assert.Equal(t, base.FreeUserLimit, state.FreeUsers, "what is back when the key ends")
 	assert.Equal(t, "team-10", state.Plan)
 
 	state = evaluate("here", key(), nil, true, expires.Add(29*24*time.Hour))
