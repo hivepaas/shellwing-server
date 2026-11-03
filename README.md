@@ -4,8 +4,8 @@ The server of [shellwing](https://github.com/hivepaas/shellwing): it syncs each 
 devices, and issues short-lived SSH certificates. It never reads what it syncs: encryption keys stay on the
 devices.
 
-**Status: early work, not ready to run in production.** The app syncs with it; it signs certificates, which the
-app does not ask for yet.
+**Status: early work, not ready to run in production.** The app syncs with it, and signs in to SSH servers with
+the certificates it signs.
 
 Anyone may host it. Up to 2 users are free; a license lifts that limit. shellwing cloud is this same server, run by
 its maintainers.
@@ -26,10 +26,11 @@ make run                                                                   # on 
 ```
 
 Tests that need real servers skip without them: `SHW_TEST_PG_DSN`, a PostgreSQL with the migrations applied, and
-`SHW_TEST_S3_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`.
+`SHW_TEST_S3_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY`, `_SECRET_KEY`. `scripts/e2e.sh` runs the app's tests that need a
+server against one of its own, on a database it makes and removes; it needs the app checked out next to this one.
 
-While nothing is released, migrations are edited in place rather than added to; run `make seed-data-with-clear` after
-each change. The web app is in [web/](web/README.md).
+A migration in a release (v0.1.0 on) is never edited, since servers have run it: a change is a new migration, and
+CI refuses an edit. `make seed-data-with-clear` makes the local database again. The web app is in [web/](web/README.md).
 
 ## License
 

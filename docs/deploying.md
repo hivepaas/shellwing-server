@@ -71,6 +71,26 @@ and remove the old one when its last certificates have ended. If the key may hav
 database and the app secret can sign for every account the target servers let a certificate reach, so treat a backup of
 them as you would the target servers' root.
 
+## Synced data
+
+The app encrypts each record (a host, a password, a key, a snippet) on the device, with a key the server never has, and
+the server stores the file as it comes. Nobody reading the database, the store or a backup of them can read a record,
+the server's admins included.
+
+What the server does see, for each person: how many records they have and how many of them are hosts (the app leaves
+that in the clear, for plans that count hosts), each file's size, and when each device writes. The records' names are random IDs.
+
+`format.json` in each space holds the vault's key, sealed by the person's recovery key, which cannot be guessed. If
+they let a passphrase add devices, it is also sealed by that passphrase: whoever reads the file can try to guess it
+offline. The app asks for a passphrase hard to guess and stretches it with Argon2id; keep the store private all the
+same, and turn on the encryption it offers (SSE on S3, an encrypted disk for a local folder).
+
+The server does not encrypt the files once more: with its own key, it would only protect against the store leaking
+alone, while losing `SHW_APP_SECRET` would lose everybody's data.
+
+The encryption stops the server from reading or changing a record, not from holding back or deleting one. A device
+keeps what it has: a record replayed from before is older than its own, and loses when they merge. A new device could
+start from an old copy.
 
 Back up PostgreSQL and the sync store together, database first: content a line needs is written before the line, so
 a store copied after the database has everything the database names. What the store holds beyond that is removed by
