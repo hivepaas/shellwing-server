@@ -32,6 +32,8 @@ type OrganizationRepo interface {
 	SetSSHCertTTL(ctx context.Context, db database.IDB, id string, minutes int) error
 	// GetMember returns nil when the user is not a member.
 	GetMember(ctx context.Context, db database.IDB, orgID, userID string) (*entity.OrgMember, error)
+	// ListMembers returns the organization's members who are users still, by username.
+	ListMembers(ctx context.Context, db database.IDB, orgID string) ([]*entity.OrgMemberUser, error)
 	// ListMembershipsOfUser returns the user's memberships, as active members, of organizations that are active.
 	ListMembershipsOfUser(ctx context.Context, db database.IDB, userID string) ([]*entity.OrgMember, error)
 	SetSSHPrincipals(ctx context.Context, db database.IDB, orgID, userID string, principals []string) error
@@ -164,6 +166,21 @@ func (repo *organizationRepo) ListMembershipsOfUser(ctx context.Context, db data
 		Where("org_member.status = ?", base.OrgMemberStatusActive).
 		Order("org_member.created_at").
 		Scan(ctx)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return members, nil
+}
+
+func (repo *organizationRepo) ListMembers(ctx context.Context, db database.IDB,
+	orgID string) ([]*entity.OrgMemberUser, error) {
+	members := []*entity.OrgMemberUser{}
+	err := db.NewSelect().TableExpr("org_members AS m").
+		Join("JOIN users AS u ON u.id = m.user_id AND u.deleted_at IS NULL").
+		ColumnExpr("m.user_id, m.role, m.status, m.ssh_principals, u.username, u.email, u.full_name").
+		Where("m.org_id = ?", orgID).
+		OrderExpr("u.username").
+		Scan(ctx, &members)
 	if err != nil {
 		return nil, hperrors.Wrap(err)
 	}

@@ -883,6 +883,65 @@
         "tags" : [ "Organizations" ]
       }
     },
+    "/orgs/{orgID}/members" : {
+      "get" : {
+        "description" : "Who they are, their role and the accounts their SSH certificates may log in as, by username. For admins.",
+        "operationId" : "listOrgMembers",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.ListMembersResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Lists the organization's members",
+        "tags" : [ "Organizations" ]
+      }
+    },
     "/orgs/{orgID}/ssh/cas" : {
       "get" : {
         "description" : "Their public keys, for sshd's TrustedUserCAKeys. A retired one signs no more, and is listed until\ndeleted so that servers trusting it can be moved over.",
@@ -6050,6 +6109,11 @@
         "type" : "string",
         "x-enum-varnames" : [ "OAuthKindGithub", "OAuthKindGithubApp", "OAuthKindGitlab", "OAuthKindGitea", "OAuthKindGoogle", "OAuthKindMicrosoftOnline", "OAuthKindOpenIDConnect" ]
       },
+      "base.OrgMemberStatus" : {
+        "enum" : [ "active", "invited", "disabled" ],
+        "type" : "string",
+        "x-enum-varnames" : [ "OrgMemberStatusActive", "OrgMemberStatusInvited", "OrgMemberStatusDisabled" ]
+      },
       "base.OrgRole" : {
         "enum" : [ "owner", "admin", "member" ],
         "type" : "string",
@@ -6519,6 +6583,25 @@
         "required" : [ "data", "meta" ],
         "type" : "object"
       },
+      "orgdto.ListMembersResp" : {
+        "properties" : {
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/orgdto.MemberResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
       "orgdto.ListOrgsResp" : {
         "properties" : {
           "data" : {
@@ -6555,6 +6638,37 @@
           }
         },
         "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "orgdto.MemberResp" : {
+        "properties" : {
+          "email" : {
+            "type" : "string"
+          },
+          "fullName" : {
+            "type" : "string"
+          },
+          "role" : {
+            "$ref" : "#/components/schemas/base.OrgRole"
+          },
+          "sshPrincipals" : {
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "status" : {
+            "$ref" : "#/components/schemas/base.OrgMemberStatus"
+          },
+          "userId" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "email", "fullName", "role", "sshPrincipals", "status", "userId", "username" ],
         "type" : "object"
       },
       "orgdto.OrgResp" : {

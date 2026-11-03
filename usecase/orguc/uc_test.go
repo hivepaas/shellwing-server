@@ -73,7 +73,7 @@ func newEnv(t *testing.T) *env {
 	admin := open(conf)
 	t.Cleanup(func() { _ = admin.Close() })
 	stmts := []string{"CREATE SCHEMA " + schema}
-	for _, table := range []string{"organizations", "org_members", "ssh_cas"} {
+	for _, table := range []string{"organizations", "org_members", "ssh_cas", "users"} {
 		stmts = append(stmts, "CREATE TABLE "+schema+"."+table+" (LIKE public."+table+" INCLUDING ALL)")
 	}
 	for _, stmt := range stmts {
@@ -108,7 +108,12 @@ func (e *env) addOrg(t *testing.T) string {
 func (e *env) addMember(t *testing.T, orgID string, role base.OrgRole, status base.OrgMemberStatus) *basedto.Auth {
 	t.Helper()
 	id := gofn.Must(ulid.NewStringULID())
-	_, err := e.db.NewInsert().Model(&entity.OrgMember{
+	_, err := e.db.NewInsert().Model(&entity.User{
+		ID: id, Username: "user-" + strings.ToLower(id), Role: base.UserRoleMember, Status: base.UserStatusActive,
+		SecurityOption: base.UserSecurityPasswordOnly,
+	}).Exec(context.Background())
+	require.NoError(t, err)
+	_, err = e.db.NewInsert().Model(&entity.OrgMember{
 		OrgID: orgID, UserID: id, Role: role, Status: status,
 	}).Exec(context.Background())
 	require.NoError(t, err)
@@ -343,4 +348,32 @@ func TestListOrgsLeavesOutWhereThePersonIsNotActive(t *testing.T) {
 	assert.Equal(t, e.org, resp.Data[0].ID)
 	assert.Equal(t, 480, resp.Data[0].SSHCertTTLMinutes)
 	assert.Empty(t, resp.Data[0].SSHPrincipals)
+}
+
+func TestAnAdminListsTheMembersWithWhatTheyMayLogInAs(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	admin := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
+	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusInvited)
+	_ = e.addMember(t, e.addOrg(t), base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.SetSSHPrincipals(ctx, admin, e.org, member.UserID(),
+		&orgdto.SetSSHPrincipalsReq{Principals: []string{"deploy"}})
+	require.NoError(t, err)
+
+	resp, err := e.uc.ListMembers(ctx, admin, e.org)
+	require.NoError(t, err)
+	got := map[string]*orgdto.MemberResp{}
+	for _, m := range resp.Data {
+		got[m.UserID] = m
+	}
+	require.Len(t, got, 2, "only this organization's")
+	assert.Equal(t, []string{"deploy"}, got[member.UserID()].SSHPrincipals)
+	assert.Equal(t, base.OrgMemberStatusInvited, got[member.UserID()].Status)
+	assert.Equal(t, []string{}, got[admin.UserID()].SSHPrincipals, "none until granted")
+	assert.NotEmpty(t, got[admin.UserID()].Username)
+
+	_, err = e.uc.ListMembers(ctx, member, e.org)
+	require.ErrorIs(t, err, hperrors.ErrNotFound, "an invited member is no member yet")
+	other := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err = e.uc.ListMembers(ctx, other, e.org)
+	require.ErrorIs(t, err, hperrors.ErrForbidden)
 }
