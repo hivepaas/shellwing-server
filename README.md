@@ -4,8 +4,8 @@ The server of [shellwing](https://github.com/hivepaas/shellwing): it syncs each 
 devices, and issues short-lived SSH certificates. It never reads what it syncs: encryption keys stay on the
 devices.
 
-**Status: early work, not ready to run in production.** The sync API works; the app does not use it yet, and the
-certificates are still to come.
+**Status: early work, not ready to run in production.** The app syncs with it; it signs certificates, which the
+app does not ask for yet.
 
 Anyone may host it. Up to 2 users are free; a license lifts that limit. shellwing cloud is this same server, run by
 its maintainers.
