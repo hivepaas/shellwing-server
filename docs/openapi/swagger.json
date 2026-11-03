@@ -9526,6 +9526,9 @@
           "expiresAt" : {
             "type" : "string"
           },
+          "freeUsers" : {
+            "type" : "integer"
+          },
           "graceEndsAt" : {
             "type" : "string"
           },
@@ -9548,7 +9551,7 @@
             "type" : "integer"
           }
         },
-        "required" : [ "expiresAt", "graceEndsAt", "installationId", "maxUsers", "plan", "status", "trial", "usedUsers" ],
+        "required" : [ "expiresAt", "freeUsers", "graceEndsAt", "installationId", "maxUsers", "plan", "status", "trial", "usedUsers" ],
         "type" : "object"
       },
       "system_licensedto.RemoveLicenseResp" : {
