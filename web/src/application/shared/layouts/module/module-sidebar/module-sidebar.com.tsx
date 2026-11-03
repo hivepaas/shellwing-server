@@ -2,9 +2,11 @@ import * as React from "react";
 
 import { LogoIcon } from "@/assets/icons";
 import {
+    BadgeCheck,
     Bell,
     CircleDashed,
     CircleUser,
+    FileKey,
     HardDrive,
     IdCard,
     KeySquare,
@@ -16,12 +18,14 @@ import {
     PanelLeftOpen,
     Puzzle,
     ScrollText,
+    ShieldCheck,
     Users,
 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 
 import { MODULE_IDS, ROUTE, type ResourceModuleId } from "@application/shared/constants";
 import { useProfileContext } from "@application/shared/context";
+import { useAdministeredOrg } from "@application/shared/hooks";
 import { type ModuleId, type ModulePermission, useConditionalModuleCollections } from "@application/shared/permissions";
 
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui";
@@ -43,6 +47,8 @@ interface SidebarSubItem {
     pattern: string;
     icon?: LucideIcon;
     moduleId?: ResourceModuleId;
+    /** Only for an owner or an admin of an organization: their role there, not a module permission, decides. */
+    requiresOrgAdmin?: boolean;
 }
 
 interface SidebarSection {
@@ -56,6 +62,7 @@ interface SidebarItem {
     pattern: string;
     icon?: LucideIcon;
     moduleId?: ResourceModuleId;
+    requiresOrgAdmin?: boolean;
     alwaysVisible?: boolean;
     items?: SidebarSubItem[];
     sections?: SidebarSection[];
@@ -151,6 +158,28 @@ const navMain: SidebarItem[] = [
         moduleId: MODULE_IDS.User,
     },
     {
+        title: "Administration",
+        route: "#",
+        pattern: "#",
+        icon: ShieldCheck,
+        items: [
+            {
+                title: "SSH Certificates",
+                icon: FileKey,
+                route: ROUTE.organization.sshCertificates.$route,
+                pattern: ROUTE.organization.sshCertificates.$pattern,
+                requiresOrgAdmin: true,
+            },
+            {
+                title: "License",
+                icon: BadgeCheck,
+                route: ROUTE.system.license.$route,
+                pattern: ROUTE.system.license.$pattern,
+                moduleId: MODULE_IDS.System,
+            },
+        ],
+    },
+    {
         title: "Profile",
         route: ROUTE.currentUser.profile.$route,
         pattern: ROUTE.currentUser.profile.$pattern,
@@ -159,25 +188,35 @@ const navMain: SidebarItem[] = [
     },
 ];
 
-function hasReadableModuleAccess(
-    item: { moduleId?: ResourceModuleId; alwaysVisible?: boolean },
-    permissions: ReadonlyMap<ModuleId, ModulePermission>,
-) {
-    return (item.alwaysVisible ?? false) || !item.moduleId || permissions.get(item.moduleId)?.actions.read === true;
+interface SidebarAccess {
+    permissions: ReadonlyMap<ModuleId, ModulePermission>;
+    isOrgAdmin: boolean;
 }
 
-function filterSidebarItems(
-    items: readonly SidebarItem[],
-    permissions: ReadonlyMap<ModuleId, ModulePermission>,
-): SidebarItem[] {
+function hasReadableModuleAccess(
+    item: { moduleId?: ResourceModuleId; requiresOrgAdmin?: boolean; alwaysVisible?: boolean },
+    { permissions, isOrgAdmin }: SidebarAccess,
+) {
+    if (item.alwaysVisible ?? false) {
+        return true;
+    }
+
+    if ((item.requiresOrgAdmin ?? false) && !isOrgAdmin) {
+        return false;
+    }
+
+    return !item.moduleId || permissions.get(item.moduleId)?.actions.read === true;
+}
+
+function filterSidebarItems(items: readonly SidebarItem[], access: SidebarAccess): SidebarItem[] {
     return items.flatMap((item): SidebarItem[] => {
-        if (!hasReadableModuleAccess(item, permissions)) {
+        if (!hasReadableModuleAccess(item, access)) {
             return [];
         }
 
         if (item.sections && item.sections.length > 0) {
             const filteredSections = item.sections.flatMap(sec => {
-                const subItems = sec.items.filter(subItem => hasReadableModuleAccess(subItem, permissions));
+                const subItems = sec.items.filter(subItem => hasReadableModuleAccess(subItem, access));
 
                 if (subItems.length === 0) {
                     return [];
@@ -203,7 +242,7 @@ function filterSidebarItems(
             ];
         }
 
-        const subItems = item.items?.filter(subItem => hasReadableModuleAccess(subItem, permissions));
+        const subItems = item.items?.filter(subItem => hasReadableModuleAccess(subItem, access));
 
         if (item.items && (!subItems || subItems.length === 0)) {
             return [];
@@ -221,6 +260,9 @@ function filterSidebarItems(
 export function ModuleSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     const { profile } = useProfileContext();
     const { map: modulePermissionMap } = useConditionalModuleCollections();
+    // Asked for once someone is signed in: an organization's admin pages are offered by their role there.
+    const { org: administeredOrg } = useAdministeredOrg({ enabled: profile !== null });
+    const isOrgAdmin = administeredOrg !== null;
     const { isMobile, setOpenMobile, toggleSidebar } = useSidebar();
     const location = useLocation();
 
@@ -231,8 +273,8 @@ export function ModuleSidebar({ ...props }: React.ComponentProps<typeof Sidebar>
     }, [location.pathname, isMobile, setOpenMobile]);
 
     const navigationItems = React.useMemo(
-        () => filterSidebarItems(navMain, modulePermissionMap),
-        [modulePermissionMap],
+        () => filterSidebarItems(navMain, { permissions: modulePermissionMap, isOrgAdmin }),
+        [modulePermissionMap, isOrgAdmin],
     );
 
     if (!profile) {

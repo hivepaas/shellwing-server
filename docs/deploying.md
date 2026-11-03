@@ -35,14 +35,15 @@ Up to 2 users are free. A user holds a seat while active or invited; a disabled 
 no new user can be made or let back in, and that is all: nobody is removed or locked out, and every feature keeps
 working, also when a license ends.
 
-A license key lifts the limit. `GET /api/system/license` shows this server's ID, which a key is issued for, and the
-seats taken; `PUT` installs a key, `DELETE` removes it. A key is verified offline: a server never needs the portal to
+A license key lifts the limit. *Administration › License* in the web app shows this server's ID, which a key is issued
+for, and the seats taken, and installs or removes a key; so do `GET`, `PUT` and `DELETE /api/system/license`. A key is verified offline: a server never needs the portal to
 run. After a key expires its limit holds for its grace, then the free limit is back.
 
 ## SSH certificates
 
 The server can sign short-lived SSH certificates, so that nobody shares a private key and removing a person means they
-get no new ones. An organization has none of this until an admin sets it up.
+get no new ones. An organization has none of this until an admin sets it up, in *Administration › SSH Certificates*
+in the web app, or with the API below.
 
 1. An admin makes the certificate authority: `POST /api/orgs/{org}/ssh/cas`. The organization's ID is in `GET /api/orgs`.
 2. Each target server trusts its public key, with the `publicKey` of `GET /api/orgs/{org}/ssh/cas`:

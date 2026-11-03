@@ -8,3 +8,4 @@ export * from "./e.email-kind";
 export * from "./e.cloud-storage-kind";
 export * from "./e.oauth-kind";
 export * from "./e.support-feedback-category";
+export * from "./e.org-role";
