@@ -160,6 +160,7 @@ var Provides = []any{
 	repository.NewLoginTrustedDeviceRepo,
 	repository.NewOrganizationRepo,
 	repository.NewSSHCARepo,
+	repository.NewOrgGroupRepo,
 	repository.NewResLinkRepo,
 	repository.NewSettingRepo,
 	repository.NewSpaceRepo,

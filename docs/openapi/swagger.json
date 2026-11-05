@@ -883,6 +883,407 @@
         "tags" : [ "Organizations" ]
       }
     },
+    "/orgs/{orgID}/groups" : {
+      "get" : {
+        "description" : "With their members and the SSH accounts each grants its members, by name. For admins.",
+        "operationId" : "listOrgGroups",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.ListGroupsResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Lists the organization's groups",
+        "tags" : [ "Organizations" ]
+      },
+      "post" : {
+        "description" : "With no members. Its name is unique in the organization, whatever its case.",
+        "operationId" : "createOrgGroup",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.GroupReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.GroupDataResp"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Conflict"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Makes a group in the organization",
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/orgs/{orgID}/groups/{groupID}" : {
+      "delete" : {
+        "description" : "Its members lose what it granted, from their next certificate on.",
+        "operationId" : "deleteOrgGroup",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "group ID",
+          "in" : "path",
+          "name" : "groupID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.DeleteGroupResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Deletes a group",
+        "tags" : [ "Organizations" ]
+      },
+      "put" : {
+        "description" : "Its members' next certificates follow.",
+        "operationId" : "updateOrgGroup",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "group ID",
+          "in" : "path",
+          "name" : "groupID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.GroupReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.GroupDataResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Conflict"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Changes a group's name, description and SSH accounts",
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/orgs/{orgID}/groups/{groupID}/members" : {
+      "put" : {
+        "description" : "Replaces its members. Each is a member of the organization who is not removed.",
+        "operationId" : "setOrgGroupMembers",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "group ID",
+          "in" : "path",
+          "name" : "groupID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.SetGroupMembersReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.GroupDataResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Sets who is in a group",
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
     "/orgs/{orgID}/members" : {
       "get" : {
         "description" : "By username. An admin sees each member's email, status, account status and the accounts their SSH\ncertificates may log in as, removed members included. A member sees the active members' names and roles.",
@@ -6273,9 +6674,9 @@
         "x-enum-varnames" : [ "AuditLogSourceAPIGet", "AuditLogSourceAPICreate", "AuditLogSourceAPIUpdate", "AuditLogSourceAPIDelete", "AuditLogSourceAPIAction" ]
       },
       "base.AuditLogType" : {
-        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout", "license-update", "ssh-ca-update", "ssh-cert-issue", "org-member-update" ],
+        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout", "license-update", "ssh-ca-update", "ssh-cert-issue", "org-member-update", "org-group-update" ],
         "type" : "string",
-        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout", "AuditLogTypeLicenseUpdate", "AuditLogTypeSSHCAUpdate", "AuditLogTypeSSHCertIssue", "AuditLogTypeOrgMemberUpdate" ]
+        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout", "AuditLogTypeLicenseUpdate", "AuditLogTypeSSHCAUpdate", "AuditLogTypeSSHCertIssue", "AuditLogTypeOrgMemberUpdate", "AuditLogTypeOrgGroupUpdate" ]
       },
       "base.CloudStorageKind" : {
         "enum" : [ "aws-s3" ],
@@ -6326,9 +6727,9 @@
         "x-enum-varnames" : [ "ResourceCapSecretReveal" ]
       },
       "base.ResourceType" : {
-        "enum" : [ "audit-log", "capability", "cloud-storage", "email", "im-service", "key-auth", "license", "ssh-ca", "ssh-certificate", "org-member", "organization", "module", "notification", "oauth", "setting", "sys-error", "task", "user" ],
+        "enum" : [ "audit-log", "capability", "cloud-storage", "email", "im-service", "key-auth", "license", "ssh-ca", "ssh-certificate", "org-member", "org-group", "organization", "module", "notification", "oauth", "setting", "sys-error", "task", "user" ],
         "type" : "string",
-        "x-enum-varnames" : [ "ResourceTypeAuditLog", "ResourceTypeCapability", "ResourceTypeCloudStorage", "ResourceTypeEmail", "ResourceTypeIMService", "ResourceTypeKeyAuth", "ResourceTypeLicense", "ResourceTypeSSHCA", "ResourceTypeSSHCert", "ResourceTypeOrgMember", "ResourceTypeOrganization", "ResourceTypeModule", "ResourceTypeNotification", "ResourceTypeOAuth", "ResourceTypeSetting", "ResourceTypeSysError", "ResourceTypeTask", "ResourceTypeUser" ]
+        "x-enum-varnames" : [ "ResourceTypeAuditLog", "ResourceTypeCapability", "ResourceTypeCloudStorage", "ResourceTypeEmail", "ResourceTypeIMService", "ResourceTypeKeyAuth", "ResourceTypeLicense", "ResourceTypeSSHCA", "ResourceTypeSSHCert", "ResourceTypeOrgMember", "ResourceTypeOrgGroup", "ResourceTypeOrganization", "ResourceTypeModule", "ResourceTypeNotification", "ResourceTypeOAuth", "ResourceTypeSetting", "ResourceTypeSysError", "ResourceTypeTask", "ResourceTypeUser" ]
       },
       "base.SSHCAStatus" : {
         "enum" : [ "active", "retired" ],
@@ -6742,6 +7143,18 @@
         "required" : [ "data", "meta" ],
         "type" : "object"
       },
+      "orgdto.DeleteGroupResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
+        "type" : "object"
+      },
       "orgdto.DeleteSSHCAResp" : {
         "properties" : {
           "meta" : {
@@ -6752,6 +7165,99 @@
           }
         },
         "required" : [ "meta" ],
+        "type" : "object"
+      },
+      "orgdto.GroupDataResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/orgdto.GroupResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "orgdto.GroupMemberResp" : {
+        "properties" : {
+          "fullName" : {
+            "type" : "string"
+          },
+          "userId" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "fullName", "userId", "username" ],
+        "type" : "object"
+      },
+      "orgdto.GroupRefResp" : {
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "id", "name" ],
+        "type" : "object"
+      },
+      "orgdto.GroupReq" : {
+        "properties" : {
+          "description" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "sshPrincipals" : {
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "description", "name", "sshPrincipals" ],
+        "type" : "object"
+      },
+      "orgdto.GroupResp" : {
+        "properties" : {
+          "description" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "members" : {
+            "items" : {
+              "$ref" : "#/components/schemas/orgdto.GroupMemberResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "sshPrincipals" : {
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "description", "id", "members", "name", "sshPrincipals" ],
         "type" : "object"
       },
       "orgdto.IssueSSHCertificateReq" : {
@@ -6770,6 +7276,25 @@
               "$ref" : "#/components/schemas/orgdto.SSHCertificateResp"
             } ],
             "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "orgdto.ListGroupsResp" : {
+        "properties" : {
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/orgdto.GroupResp"
+            },
+            "nullable" : true,
+            "type" : "array"
           },
           "meta" : {
             "allOf" : [ {
@@ -6849,6 +7374,14 @@
           "fullName" : {
             "type" : "string"
           },
+          "groups" : {
+            "description" : "Groups are the groups the member is in, whose SSH accounts are theirs too.",
+            "items" : {
+              "$ref" : "#/components/schemas/orgdto.GroupRefResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
           "role" : {
             "$ref" : "#/components/schemas/base.OrgRole"
           },
@@ -6869,7 +7402,7 @@
             "type" : "string"
           }
         },
-        "required" : [ "accountStatus", "email", "fullName", "role", "sshPrincipals", "status", "userId", "username" ],
+        "required" : [ "accountStatus", "email", "fullName", "groups", "role", "sshPrincipals", "status", "userId", "username" ],
         "type" : "object"
       },
       "orgdto.OrgResp" : {
@@ -6890,6 +7423,7 @@
             "type" : "integer"
           },
           "sshPrincipals" : {
+            "description" : "SSHPrincipals are what the member's certificates may log in as: their own accounts and their groups'.",
             "items" : {
               "type" : "string"
             },
@@ -6960,6 +7494,19 @@
           }
         },
         "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "orgdto.SetGroupMembersReq" : {
+        "properties" : {
+          "userIds" : {
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "userIds" ],
         "type" : "object"
       },
       "orgdto.SetSSHPrincipalsReq" : {

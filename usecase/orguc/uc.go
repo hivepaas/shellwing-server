@@ -38,12 +38,13 @@ type UC struct {
 	db           *database.DB
 	orgRepo      repository.OrganizationRepo
 	sshCARepo    repository.SSHCARepo
+	groupRepo    repository.OrgGroupRepo
 	auditService auditservice.Service
 }
 
 func New(db *database.DB, orgRepo repository.OrganizationRepo, sshCARepo repository.SSHCARepo,
-	auditService auditservice.Service) *UC {
-	return &UC{db: db, orgRepo: orgRepo, sshCARepo: sshCARepo, auditService: auditService}
+	groupRepo repository.OrgGroupRepo, auditService auditservice.Service) *UC {
+	return &UC{db: db, orgRepo: orgRepo, sshCARepo: sshCARepo, groupRepo: groupRepo, auditService: auditService}
 }
 
 // memberOf is the person's membership of an active organization. An organization they are not an active member of is
@@ -112,9 +113,14 @@ func (uc *UC) ListOrgs(ctx context.Context, auth *basedto.Auth) (*orgdto.ListOrg
 		if err != nil {
 			return nil, hperrors.Wrap(err)
 		}
-		if org != nil {
-			data = append(data, orgdto.TransformOrg(org, member))
+		if org == nil {
+			continue
 		}
+		principals, err := uc.principalsOf(ctx, uc.db, member)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, orgdto.TransformOrg(org, member, principals))
 	}
 	return &orgdto.ListOrgsResp{Data: data}, nil
 }
@@ -239,11 +245,21 @@ func (uc *UC) ListMembers(ctx context.Context, auth *basedto.Auth, orgID string)
 	if err != nil {
 		return nil, hperrors.Wrap(err)
 	}
+	groupsOf := map[string][]*orgdto.GroupRefResp{}
+	if isAdmin(me) {
+		inGroups, err := uc.groupRepo.ListMembers(ctx, uc.db, orgID)
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+		for _, m := range inGroups {
+			groupsOf[m.UserID] = append(groupsOf[m.UserID], &orgdto.GroupRefResp{ID: m.GroupID, Name: m.GroupName})
+		}
+	}
 	data := make([]*orgdto.MemberResp, 0, len(members))
 	for _, m := range members {
 		switch {
 		case isAdmin(me):
-			data = append(data, orgdto.TransformMember(m))
+			data = append(data, orgdto.TransformMember(m, groupsOf[m.UserID]))
 		case m.Status == base.OrgMemberStatusActive && m.AccountStatus == base.UserStatusActive:
 			data = append(data, orgdto.TransformMemberForMember(m))
 		}
@@ -322,6 +338,9 @@ func (uc *UC) UpdateMemberStatus(ctx context.Context, auth *basedto.Auth, orgID,
 		if req.Status == base.OrgMemberStatusRemoved {
 			member.Role = base.OrgRoleMember
 			member.SSHPrincipals = []string{}
+			if err = uc.groupRepo.RemoveFromAll(ctx, tx, orgID, userID); err != nil {
+				return hperrors.Wrap(err)
+			}
 		}
 		if err = uc.orgRepo.UpdateMember(ctx, tx, member); err != nil {
 			return hperrors.Wrap(err)
@@ -397,16 +416,11 @@ func (uc *UC) GetSSHPrincipals(ctx context.Context, auth *basedto.Auth, orgID, u
 // trusts the CA.
 func (uc *UC) SetSSHPrincipals(ctx context.Context, auth *basedto.Auth, orgID, userID string,
 	req *orgdto.SetSSHPrincipalsReq) (*orgdto.SSHPrincipalsResp, error) {
-	principals := slices.Clone(req.Principals)
-	slices.Sort(principals)
-	principals = slices.Compact(principals)
-	for _, name := range principals {
-		if !sshca.ValidPrincipal(name) {
-			return nil, hperrors.Wrap(hperrors.ErrSSHPrincipalInvalid).WithParam("Name", name)
-		}
+	principals, err := cleanPrincipals(req.Principals)
+	if err != nil {
+		return nil, err
 	}
-	principals = orEmpty(principals)
-	err := transaction.Execute(ctx, uc.db, func(tx database.Tx) error {
+	err = transaction.Execute(ctx, uc.db, func(tx database.Tx) error {
 		if err := uc.requireAdmin(ctx, tx, auth, orgID); err != nil {
 			return err
 		}
@@ -443,7 +457,11 @@ func (uc *UC) IssueSSHCertificate(ctx context.Context, auth *basedto.Auth, orgID
 		if err != nil {
 			return err
 		}
-		if len(member.SSHPrincipals) == 0 {
+		principals, err := uc.principalsOf(ctx, tx, member)
+		if err != nil {
+			return err
+		}
+		if len(principals) == 0 {
 			return hperrors.Wrap(hperrors.ErrSSHNoPrincipals)
 		}
 		ca, err := uc.sshCARepo.GetActive(ctx, tx, orgID)
@@ -460,7 +478,7 @@ func (uc *UC) IssueSSHCertificate(ctx context.Context, auth *basedto.Auth, orgID
 		signed, err := sshca.Sign(caKey, &sshca.UserCert{
 			Key:        key,
 			KeyID:      keyIDOf(auth),
-			Principals: member.SSHPrincipals,
+			Principals: principals,
 			TTL:        time.Duration(org.SSHCertTTLMinutes) * time.Minute,
 			Now:        timeutil.NowUTC(),
 		})
@@ -476,7 +494,7 @@ func (uc *UC) IssueSSHCertificate(ctx context.Context, auth *basedto.Auth, orgID
 				Set("caId", ca.ID).
 				Set("deviceId", deviceIDOf(auth)).
 				Set("fingerprint", signed.Fingerprint).
-				Set("principals", member.SSHPrincipals).
+				Set("principals", principals).
 				Set("validBefore", signed.ValidBefore).String(),
 		})
 		if err != nil {
@@ -484,7 +502,7 @@ func (uc *UC) IssueSSHCertificate(ctx context.Context, auth *basedto.Auth, orgID
 		}
 		data = &orgdto.SSHCertificateResp{
 			Certificate: signed.Certificate,
-			Principals:  member.SSHPrincipals,
+			Principals:  principals,
 			ValidAfter:  signed.ValidAfter,
 			ValidBefore: signed.ValidBefore,
 		}
@@ -512,6 +530,30 @@ func keyIDOf(auth *basedto.Auth) string {
 		id += " device=" + device
 	}
 	return id
+}
+
+// principalsOf is what a member's certificates may log in as: their own accounts and their groups'.
+func (uc *UC) principalsOf(ctx context.Context, db database.IDB, member *entity.OrgMember) ([]string, error) {
+	fromGroups, err := uc.groupRepo.PrincipalsOf(ctx, db, member.OrgID, member.UserID)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	principals := append(slices.Clone(member.SSHPrincipals), fromGroups...)
+	slices.Sort(principals)
+	return orEmpty(slices.Compact(principals)), nil
+}
+
+// cleanPrincipals sorts the names, keeps each once, and refuses one no account could have.
+func cleanPrincipals(names []string) ([]string, error) {
+	principals := slices.Clone(names)
+	slices.Sort(principals)
+	principals = slices.Compact(principals)
+	for _, name := range principals {
+		if !sshca.ValidPrincipal(name) {
+			return nil, hperrors.Wrap(hperrors.ErrSSHPrincipalInvalid).WithParam("Name", name)
+		}
+	}
+	return orEmpty(principals), nil
 }
 
 func orEmpty(names []string) []string {

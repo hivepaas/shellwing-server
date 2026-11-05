@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	paramOrgID  = "orgID"
-	paramCAID   = "caID"
-	paramUserID = "userID"
+	paramOrgID   = "orgID"
+	paramCAID    = "caID"
+	paramUserID  = "userID"
+	paramGroupID = "groupID"
 )
 
 type Handler struct {
