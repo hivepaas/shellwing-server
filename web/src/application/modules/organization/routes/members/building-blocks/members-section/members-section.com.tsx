@@ -50,7 +50,8 @@ export function MembersSection({ orgId, myUserId, myRole }: Props) {
             return (
                 member.username.toLowerCase().includes(term) ||
                 member.fullName.toLowerCase().includes(term) ||
-                member.email.toLowerCase().includes(term)
+                member.email.toLowerCase().includes(term) ||
+                member.groups.some(group => group.name.toLowerCase().includes(term))
             );
         });
     }, [all, search, showRemoved]);

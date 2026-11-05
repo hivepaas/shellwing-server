@@ -51,6 +51,20 @@ export const organizationRouter: RouteObject = {
             },
         },
         {
+            path: ROUTE.organization.groups.$pattern,
+            lazy: async () => {
+                const { GroupsRoute } = await getLazyComponents();
+
+                return {
+                    element: (
+                        <ModuleTitle title="Groups">
+                            <GroupsRoute />
+                        </ModuleTitle>
+                    ),
+                };
+            },
+        },
+        {
             path: ROUTE.organization.sshCertificates.$pattern,
             lazy: async () => {
                 const { SshCertificatesRoute } = await getLazyComponents();

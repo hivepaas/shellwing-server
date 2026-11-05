@@ -36,6 +36,16 @@ const OrgMemberSchema = z.object({
         .array(z.string())
         .nullish()
         .transform(value => value ?? []),
+    // For the organization's owners and admins only.
+    groups: z
+        .array(
+            z.object({
+                id: z.string(),
+                name: z.string(),
+            }),
+        )
+        .nullish()
+        .transform(value => value ?? []),
 });
 
 const FindManySchema = z.object({

@@ -1,7 +1,7 @@
 /**
  * Organization
  */
-export { MembersRoute, SshCertificatesRoute } from "./routes";
+export { GroupsRoute, MembersRoute, SshCertificatesRoute } from "./routes";
 
 /**
  * Components

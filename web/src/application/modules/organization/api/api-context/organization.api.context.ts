@@ -1,6 +1,8 @@
 import { createContext } from "react";
 
 import {
+    OrgGroupsApi,
+    OrgGroupsApiValidator,
     OrgMembersApi,
     OrgMembersApiValidator,
     SshCaApi,
@@ -16,6 +18,7 @@ function createApi() {
      * Organization
      */
     const orgMembersValidator = new OrgMembersApiValidator();
+    const orgGroupsValidator = new OrgGroupsApiValidator();
     const sshCaValidator = new SshCaApiValidator();
     const sshSettingsValidator = new SshSettingsApiValidator();
     const sshPrincipalsValidator = new SshPrincipalsApiValidator();
@@ -23,6 +26,7 @@ function createApi() {
     return {
         organization: {
             members: new OrgMembersApi(orgMembersValidator),
+            groups: new OrgGroupsApi(orgGroupsValidator),
             ssh: {
                 cas: new SshCaApi(sshCaValidator),
                 settings: new SshSettingsApi(sshSettingsValidator),

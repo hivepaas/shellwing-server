@@ -13,8 +13,9 @@ import { useProfileContext } from "@application/shared/context";
 import { QK as SHARED_QK } from "@application/shared/data/constants";
 
 /**
- * What a change of role or status shows in: the members, the accounts a removed member lost, and - when it is the
- * signed-in user's own - their organizations, which decide the pages they are offered.
+ * What a change of role or status shows in: the members, the accounts a removed member lost, the groups a removed
+ * member was taken out of, and - when it is the signed-in user's own - their organizations, which decide the pages they
+ * are offered.
  *
  * Who has just left is not asked for the members again: they may see them no more, and are taken off the page.
  */
@@ -27,6 +28,10 @@ function invalidateMembers(queryClient: QueryClient, { hasLeft = false }: { hasL
     });
     void queryClient.invalidateQueries({
         queryKey: [QK["organization.ssh-principals.find-one"]],
+        refetchType,
+    });
+    void queryClient.invalidateQueries({
+        queryKey: [QK["organization.groups.find-many"]],
         refetchType,
     });
     void queryClient.invalidateQueries({

@@ -81,6 +81,7 @@ export function EditSshPrincipalsDialog() {
 
     const { member } = state;
     const name = member ? member.fullName || member.username : "";
+    const groupNames = member ? member.groups.map(group => group.name) : [];
 
     return (
         <Dialog
@@ -93,8 +94,12 @@ export function EditSshPrincipalsDialog() {
                     <DialogTitle>Accounts of {name}</DialogTitle>
                     <DialogDescription>
                         The accounts {member ? <span className="font-mono">{member.username}</span> : null} may log in
-                        as on the servers that trust this organization&apos;s certificate authority.
+                        as on the servers that trust this organization&apos;s certificate authority. Only their own are
+                        edited here: those from their groups are set under Groups.
                     </DialogDescription>
+                    {groupNames.length > 0 && (
+                        <p className="text-sm text-muted-foreground">Their groups: {groupNames.join(", ")}</p>
+                    )}
                 </DialogHeader>
 
                 {data === undefined && isError && (

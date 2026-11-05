@@ -1,10 +1,17 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { OrgMember } from "~/organization/domain";
 import { OrgMemberStatusBadge, OrgRoleBadge } from "~/organization/module-shared/components";
+import type { GroupSshPrincipal } from "~/organization/module-shared/utils";
 
 import { SshPrincipalsCell, SshPrincipalsEditCell } from "./building-blocks";
 
-function createColumns(orgId: string): ColumnDef<OrgMember>[] {
+interface ColumnsParams {
+    orgId: string;
+    /** The accounts a member gets from their groups, besides their own. */
+    getGroupPrincipals: (member: OrgMember) => GroupSshPrincipal[];
+}
+
+function createColumns({ orgId, getGroupPrincipals }: ColumnsParams): ColumnDef<OrgMember>[] {
     return [
         {
             accessorKey: "username",
@@ -51,7 +58,12 @@ function createColumns(orgId: string): ColumnDef<OrgMember>[] {
             id: "sshPrincipals",
             header: "May log in as",
             enableSorting: false,
-            cell: ({ row: { original } }) => <SshPrincipalsCell principals={original.sshPrincipals} />,
+            cell: ({ row: { original } }) => (
+                <SshPrincipalsCell
+                    principals={original.sshPrincipals}
+                    groupPrincipals={getGroupPrincipals(original)}
+                />
+            ),
         },
         {
             id: "actions",

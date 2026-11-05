@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { OrgMember } from "~/organization/domain";
-import { OrgMemberStatusBadge } from "~/organization/module-shared/components";
+import { OrgGroupBadges, OrgMemberStatusBadge } from "~/organization/module-shared/components";
 import type { OrgMemberAbilities } from "~/organization/module-shared/utils";
 
 import { MemberMenuCell, MemberPersonCell, MemberRoleCell } from "./building-blocks";
@@ -54,6 +54,12 @@ function createColumns({ orgId, actorIsOwner, getAbilities }: ColumnsParams): Co
                     accountStatus={original.accountStatus}
                 />
             ),
+        },
+        {
+            id: "groups",
+            header: "Groups",
+            enableSorting: false,
+            cell: ({ row: { original } }) => <OrgGroupBadges groups={original.groups} />,
         },
         {
             id: "actions",
