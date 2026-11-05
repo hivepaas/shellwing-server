@@ -13,7 +13,9 @@ type Service interface {
 	EnsureDefaultOrg(ctx context.Context, db database.IDB) (*entity.Organization, error)
 	// MakeOwner gives the default organization its owner: the first admin.
 	MakeOwner(ctx context.Context, db database.IDB, user *entity.User) error
-	// SyncUsers brings the default organization's members in line with these users, as saved just now.
+	// SyncUsers makes these users, as saved just now, members of the default organization if they are not yet, and
+	// takes deleted ones out. A member keeps their role and status: those are the organization's, and one an admin
+	// removed is not made a member again.
 	SyncUsers(ctx context.Context, db database.IDB, users []*entity.User) error
 	// RemoveUser takes a deleted user out of the default organization.
 	RemoveUser(ctx context.Context, db database.IDB, userID string) error

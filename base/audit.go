@@ -111,12 +111,16 @@ const (
 	// AuditLogTypeSSHCertIssue records an SSH certificate being signed. Certificates are not stored: this is the record
 	// of who holds which, and when each ends.
 	AuditLogTypeSSHCertIssue AuditLogType = "ssh-cert-issue"
+	// AuditLogTypeOrgMemberUpdate records a member's role or status in an organization changing, with section naming
+	// which, and what it was and became.
+	AuditLogTypeOrgMemberUpdate AuditLogType = "org-member-update"
 )
 
 var AllAuditLogTypes = []AuditLogType{
 	AuditLogTypeLicenseUpdate,
 	AuditLogTypeSSHCAUpdate,
 	AuditLogTypeSSHCertIssue,
+	AuditLogTypeOrgMemberUpdate,
 	AuditLogTypeSecretReveal,
 	AuditLogTypeUserCreate,
 	AuditLogTypeUserUpdate,

@@ -30,6 +30,8 @@ const (
 	auditSectionCADelete   = "ca-delete"
 	auditSectionSettings   = "settings"
 	auditSectionPrincipals = "principals"
+	auditSectionRole       = "role"
+	auditSectionStatus     = "status"
 )
 
 type UC struct {
@@ -70,10 +72,14 @@ func (uc *UC) requireAdmin(ctx context.Context, db database.IDB, auth *basedto.A
 	if err != nil {
 		return err
 	}
-	if member.Role != base.OrgRoleOwner && member.Role != base.OrgRoleAdmin {
+	if !isAdmin(member) {
 		return hperrors.NewForbidden("Organization")
 	}
 	return nil
+}
+
+func isAdmin(member *entity.OrgMember) bool {
+	return member.Role == base.OrgRoleOwner || member.Role == base.OrgRoleAdmin
 }
 
 func (uc *UC) record(ctx context.Context, db database.IDB, auth *basedto.Auth, entry *auditservice.Entry) error {
@@ -222,10 +228,11 @@ func (uc *UC) UpdateSSHSettings(ctx context.Context, auth *basedto.Auth, orgID s
 	return &orgdto.UpdateSSHSettingsResp{}, nil
 }
 
-// GetSSHPrincipals returns the accounts a member's certificates may log in as.
-// ListMembers lists the organization's members, for an admin granting them accounts.
+// ListMembers lists the organization's members. An admin sees everything of each, removed members included; a member
+// sees the active ones, by name and role only.
 func (uc *UC) ListMembers(ctx context.Context, auth *basedto.Auth, orgID string) (*orgdto.ListMembersResp, error) {
-	if err := uc.requireAdmin(ctx, uc.db, auth, orgID); err != nil {
+	_, me, err := uc.memberOf(ctx, uc.db, auth, orgID)
+	if err != nil {
 		return nil, err
 	}
 	members, err := uc.orgRepo.ListMembers(ctx, uc.db, orgID)
@@ -234,11 +241,142 @@ func (uc *UC) ListMembers(ctx context.Context, auth *basedto.Auth, orgID string)
 	}
 	data := make([]*orgdto.MemberResp, 0, len(members))
 	for _, m := range members {
-		data = append(data, orgdto.TransformMember(m))
+		switch {
+		case isAdmin(me):
+			data = append(data, orgdto.TransformMember(m))
+		case m.Status == base.OrgMemberStatusActive && m.AccountStatus == base.UserStatusActive:
+			data = append(data, orgdto.TransformMemberForMember(m))
+		}
 	}
 	return &orgdto.ListMembersResp{Data: data}, nil
 }
 
+// UpdateMemberRole makes a member an owner, an admin or a member. Owners and admins change members and admins; only an
+// owner makes an owner or changes one, and the last active owner stays one.
+func (uc *UC) UpdateMemberRole(ctx context.Context, auth *basedto.Auth, orgID, userID string,
+	req *orgdto.UpdateMemberRoleReq) (*orgdto.UpdateMemberRoleResp, error) {
+	err := transaction.Execute(ctx, uc.db, func(tx database.Tx) error {
+		me, member, err := uc.lockMember(ctx, tx, auth, orgID, userID)
+		if err != nil {
+			return err
+		}
+		if !isAdmin(me) {
+			return hperrors.NewForbidden("Organization")
+		}
+		if member.Status == base.OrgMemberStatusRemoved {
+			return hperrors.NewNotFound("Member")
+		}
+		if (member.Role == base.OrgRoleOwner || req.Role == base.OrgRoleOwner) && me.Role != base.OrgRoleOwner {
+			return hperrors.NewForbidden("Organization")
+		}
+		if member.Role == req.Role {
+			return nil
+		}
+		if member.Role == base.OrgRoleOwner {
+			if err = uc.requireAnotherOwner(ctx, tx, orgID, userID); err != nil {
+				return err
+			}
+		}
+		from := member.Role
+		member.Role = req.Role
+		if err = uc.orgRepo.UpdateMember(ctx, tx, member); err != nil {
+			return hperrors.Wrap(err)
+		}
+		return uc.recordMemberChange(ctx, tx, auth, orgID, userID, auditSectionRole, string(from), string(req.Role))
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return &orgdto.UpdateMemberRoleResp{}, nil
+}
+
+// UpdateMemberStatus suspends a member, removes them, or makes them active again. Owners and admins do it to members
+// and admins, and only an owner to an owner; anybody may remove themselves, which is leaving. The last active owner
+// stays one. A removed member loses their role and accounts: brought back, they are a member with none.
+func (uc *UC) UpdateMemberStatus(ctx context.Context, auth *basedto.Auth, orgID, userID string,
+	req *orgdto.UpdateMemberStatusReq) (*orgdto.UpdateMemberStatusResp, error) {
+	err := transaction.Execute(ctx, uc.db, func(tx database.Tx) error {
+		me, member, err := uc.lockMember(ctx, tx, auth, orgID, userID)
+		if err != nil {
+			return err
+		}
+		leaving := userID == auth.UserID() && req.Status == base.OrgMemberStatusRemoved
+		if !leaving {
+			if !isAdmin(me) {
+				return hperrors.NewForbidden("Organization")
+			}
+			if member.Role == base.OrgRoleOwner && me.Role != base.OrgRoleOwner {
+				return hperrors.NewForbidden("Organization")
+			}
+		}
+		if member.Status == req.Status {
+			return nil
+		}
+		if member.Role == base.OrgRoleOwner && member.Status == base.OrgMemberStatusActive {
+			if err = uc.requireAnotherOwner(ctx, tx, orgID, userID); err != nil {
+				return err
+			}
+		}
+		from := member.Status
+		member.Status = req.Status
+		if req.Status == base.OrgMemberStatusRemoved {
+			member.Role = base.OrgRoleMember
+			member.SSHPrincipals = []string{}
+		}
+		if err = uc.orgRepo.UpdateMember(ctx, tx, member); err != nil {
+			return hperrors.Wrap(err)
+		}
+		return uc.recordMemberChange(ctx, tx, auth, orgID, userID, auditSectionStatus, string(from),
+			string(req.Status))
+	})
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return &orgdto.UpdateMemberStatusResp{}, nil
+}
+
+// lockMember returns the person acting and the member they act on, with the organization locked: two changes at once
+// cannot both take away what each thought the other left, such as the last owner.
+func (uc *UC) lockMember(ctx context.Context, tx database.Tx, auth *basedto.Auth, orgID, userID string) (
+	me, member *entity.OrgMember, err error) {
+	if _, err = uc.orgRepo.LockByID(ctx, tx, orgID); err != nil {
+		return nil, nil, hperrors.Wrap(err)
+	}
+	if _, me, err = uc.memberOf(ctx, tx, auth, orgID); err != nil {
+		return nil, nil, err
+	}
+	if member, err = uc.orgRepo.GetMember(ctx, tx, orgID, userID); err != nil {
+		return nil, nil, hperrors.Wrap(err)
+	}
+	if member == nil {
+		return nil, nil, hperrors.NewNotFound("Member")
+	}
+	return me, member, nil
+}
+
+func (uc *UC) requireAnotherOwner(ctx context.Context, db database.IDB, orgID, userID string) error {
+	owners, err := uc.orgRepo.CountActiveOwners(ctx, db, orgID, userID)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	if owners == 0 {
+		return hperrors.Wrap(hperrors.ErrOrgLastOwner)
+	}
+	return nil
+}
+
+func (uc *UC) recordMemberChange(ctx context.Context, db database.IDB, auth *basedto.Auth, orgID, userID, section,
+	from, to string) error {
+	return uc.record(ctx, db, auth, &auditservice.Entry{
+		Type:    base.AuditLogTypeOrgMemberUpdate,
+		Section: section,
+		ResType: base.ResourceTypeOrgMember,
+		ResID:   userID,
+		Detail:  auditdetail.New().Set("orgId", orgID).Set("from", from).Set("to", to).String(),
+	})
+}
+
+// GetSSHPrincipals returns the accounts a member's certificates may log in as.
 func (uc *UC) GetSSHPrincipals(ctx context.Context, auth *basedto.Auth, orgID, userID string) (
 	*orgdto.SSHPrincipalsResp, error) {
 	if err := uc.requireAdmin(ctx, uc.db, auth, orgID); err != nil {
@@ -248,7 +386,7 @@ func (uc *UC) GetSSHPrincipals(ctx context.Context, auth *basedto.Auth, orgID, u
 	if err != nil {
 		return nil, hperrors.Wrap(err)
 	}
-	if member == nil {
+	if member == nil || member.Status == base.OrgMemberStatusRemoved {
 		return nil, hperrors.NewNotFound("Member")
 	}
 	return &orgdto.SSHPrincipalsResp{Data: orEmpty(member.SSHPrincipals)}, nil
@@ -276,7 +414,7 @@ func (uc *UC) SetSSHPrincipals(ctx context.Context, auth *basedto.Auth, orgID, u
 		if err != nil {
 			return hperrors.Wrap(err)
 		}
-		if member == nil {
+		if member == nil || member.Status == base.OrgMemberStatusRemoved {
 			return hperrors.NewNotFound("Member")
 		}
 		if err = uc.orgRepo.SetSSHPrincipals(ctx, tx, orgID, userID, principals); err != nil {

@@ -885,7 +885,7 @@
     },
     "/orgs/{orgID}/members" : {
       "get" : {
-        "description" : "Who they are, their role and the accounts their SSH certificates may log in as, by username. For admins.",
+        "description" : "By username. An admin sees each member's email, status, account status and the accounts their SSH\ncertificates may log in as, removed members included. A member sees the active members' names and roles.",
         "operationId" : "listOrgMembers",
         "parameters" : [ {
           "description" : "organization ID",
@@ -940,6 +940,204 @@
         },
         "summary" : "Lists the organization's members",
         "tags" : [ "Organizations" ]
+      }
+    },
+    "/orgs/{orgID}/members/{userID}/role" : {
+      "put" : {
+        "description" : "Owners and admins make members admins and admins members. Only an owner makes an owner or changes one,\nand the last active owner stays one (ERR_ORG_LAST_OWNER).",
+        "operationId" : "updateOrgMemberRole",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "user ID",
+          "in" : "path",
+          "name" : "userID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.UpdateMemberRoleReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.UpdateMemberRoleResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Changes a member's role in the organization",
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/orgs/{orgID}/members/{userID}/status" : {
+      "put" : {
+        "description" : "Owners and admins do it to members and admins, and only an owner to an owner. Anybody may remove\nthemselves: that is leaving. The last active owner stays one (ERR_ORG_LAST_OWNER). Removing a member\ntakes their role and SSH accounts away.",
+        "operationId" : "updateOrgMemberStatus",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "user ID",
+          "in" : "path",
+          "name" : "userID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.UpdateMemberStatusReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.UpdateMemberStatusResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Suspends a member, removes them, or makes them active again",
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
       }
     },
     "/orgs/{orgID}/ssh/cas" : {
@@ -6075,9 +6273,9 @@
         "x-enum-varnames" : [ "AuditLogSourceAPIGet", "AuditLogSourceAPICreate", "AuditLogSourceAPIUpdate", "AuditLogSourceAPIDelete", "AuditLogSourceAPIAction" ]
       },
       "base.AuditLogType" : {
-        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout", "license-update", "ssh-ca-update", "ssh-cert-issue" ],
+        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout", "license-update", "ssh-ca-update", "ssh-cert-issue", "org-member-update" ],
         "type" : "string",
-        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout", "AuditLogTypeLicenseUpdate", "AuditLogTypeSSHCAUpdate", "AuditLogTypeSSHCertIssue" ]
+        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout", "AuditLogTypeLicenseUpdate", "AuditLogTypeSSHCAUpdate", "AuditLogTypeSSHCertIssue", "AuditLogTypeOrgMemberUpdate" ]
       },
       "base.CloudStorageKind" : {
         "enum" : [ "aws-s3" ],
@@ -6110,9 +6308,9 @@
         "x-enum-varnames" : [ "OAuthKindGithub", "OAuthKindGithubApp", "OAuthKindGitlab", "OAuthKindGitea", "OAuthKindGoogle", "OAuthKindMicrosoftOnline", "OAuthKindOpenIDConnect" ]
       },
       "base.OrgMemberStatus" : {
-        "enum" : [ "active", "invited", "disabled" ],
+        "enum" : [ "active", "suspended", "removed" ],
         "type" : "string",
-        "x-enum-varnames" : [ "OrgMemberStatusActive", "OrgMemberStatusInvited", "OrgMemberStatusDisabled" ]
+        "x-enum-varnames" : [ "OrgMemberStatusActive", "OrgMemberStatusSuspended", "OrgMemberStatusRemoved" ]
       },
       "base.OrgRole" : {
         "enum" : [ "owner", "admin", "member" ],
@@ -6642,6 +6840,9 @@
       },
       "orgdto.MemberResp" : {
         "properties" : {
+          "accountStatus" : {
+            "$ref" : "#/components/schemas/base.UserStatus"
+          },
           "email" : {
             "type" : "string"
           },
@@ -6668,7 +6869,7 @@
             "type" : "string"
           }
         },
-        "required" : [ "email", "fullName", "role", "sshPrincipals", "status", "userId", "username" ],
+        "required" : [ "accountStatus", "email", "fullName", "role", "sshPrincipals", "status", "userId", "username" ],
         "type" : "object"
       },
       "orgdto.OrgResp" : {
@@ -6772,6 +6973,48 @@
           }
         },
         "required" : [ "principals" ],
+        "type" : "object"
+      },
+      "orgdto.UpdateMemberRoleReq" : {
+        "properties" : {
+          "role" : {
+            "$ref" : "#/components/schemas/base.OrgRole"
+          }
+        },
+        "required" : [ "role" ],
+        "type" : "object"
+      },
+      "orgdto.UpdateMemberRoleResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
+        "type" : "object"
+      },
+      "orgdto.UpdateMemberStatusReq" : {
+        "properties" : {
+          "status" : {
+            "$ref" : "#/components/schemas/base.OrgMemberStatus"
+          }
+        },
+        "required" : [ "status" ],
+        "type" : "object"
+      },
+      "orgdto.UpdateMemberStatusResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
         "type" : "object"
       },
       "orgdto.UpdateSSHSettingsReq" : {

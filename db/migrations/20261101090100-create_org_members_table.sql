@@ -1,6 +1,10 @@
 -- +migrate Up
 -- Who belongs to which organization, and as what. users.role says what a person may do to the server itself; this says
--- what they may do in one organization. A user is not tied to one: in shellwing cloud a person can be in several.
+-- what they may do in one organization, and neither follows from the other. A user is not tied to one: in shellwing
+-- cloud a person can be in several.
+--
+-- status is the organization's say: an admin suspends a member, or removes them. A removed member's line stays, so
+-- that saving their account does not make them a member again. Whether the account itself may sign in is users.status.
 CREATE TABLE IF NOT EXISTS org_members
 (
     org_id     VARCHAR(100) NOT NULL,
@@ -8,7 +12,7 @@ CREATE TABLE IF NOT EXISTS org_members
     role       VARCHAR NOT NULL CONSTRAINT chk_role CHECK
                    (role IN ('owner','admin','member')),
     status     VARCHAR NOT NULL CONSTRAINT chk_status CHECK
-                   (status IN ('active','invited','disabled')),
+                   (status IN ('active','suspended','removed')) DEFAULT 'active',
     -- The accounts an SSH certificate of this person may log in as. None until an admin grants them.
     ssh_principals TEXT[] NOT NULL DEFAULT '{}',
 

@@ -175,7 +175,8 @@ func (h *Handler) UpdateSSHSettings(ctx *gin.Context) {
 
 // ListMembers lists the organization's members
 // @Summary Lists the organization's members
-// @Description Who they are, their role and the accounts their SSH certificates may log in as, by username. For admins.
+// @Description By username. An admin sees each member's email, status, account status and the accounts their SSH
+// @Description certificates may log in as, removed members included. A member sees the active members' names and roles.
 // @Tags    Organizations
 // @Produce json
 // @Id      listOrgMembers
@@ -192,6 +193,80 @@ func (h *Handler) ListMembers(ctx *gin.Context) {
 		return
 	}
 	resp, err := h.orgUC.ListMembers(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID))
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, resp)
+}
+
+// UpdateMemberRole changes a member's role
+// @Summary Changes a member's role in the organization
+// @Description Owners and admins make members admins and admins members. Only an owner makes an owner or changes one,
+// @Description and the last active owner stays one (ERR_ORG_LAST_OWNER).
+// @Tags    Organizations
+// @Produce json
+// @Id      updateOrgMemberRole
+// @Param   orgID path string true "organization ID"
+// @Param   userID path string true "user ID"
+// @Param   body body orgdto.UpdateMemberRoleReq true "request data"
+// @Success 200 {object} orgdto.UpdateMemberRoleResp
+// @Failure 400 {object} hperrors.ErrorInfo
+// @Failure 403 {object} hperrors.ErrorInfo
+// @Failure 404 {object} hperrors.ErrorInfo
+// @Failure 412 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /orgs/{orgID}/members/{userID}/role [put]
+func (h *Handler) UpdateMemberRole(ctx *gin.Context) {
+	auth, err := h.adminAuth(ctx)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	req := orgdto.NewUpdateMemberRoleReq()
+	if err = h.ParseAndValidateJSONBody(ctx, req); err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	resp, err := h.orgUC.UpdateMemberRole(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID), ctx.Param(paramUserID), req)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, resp)
+}
+
+// UpdateMemberStatus suspends, removes or reactivates a member
+// @Summary Suspends a member, removes them, or makes them active again
+// @Description Owners and admins do it to members and admins, and only an owner to an owner. Anybody may remove
+// @Description themselves: that is leaving. The last active owner stays one (ERR_ORG_LAST_OWNER). Removing a member
+// @Description takes their role and SSH accounts away.
+// @Tags    Organizations
+// @Produce json
+// @Id      updateOrgMemberStatus
+// @Param   orgID path string true "organization ID"
+// @Param   userID path string true "user ID"
+// @Param   body body orgdto.UpdateMemberStatusReq true "request data"
+// @Success 200 {object} orgdto.UpdateMemberStatusResp
+// @Failure 400 {object} hperrors.ErrorInfo
+// @Failure 403 {object} hperrors.ErrorInfo
+// @Failure 404 {object} hperrors.ErrorInfo
+// @Failure 412 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /orgs/{orgID}/members/{userID}/status [put]
+func (h *Handler) UpdateMemberStatus(ctx *gin.Context) {
+	auth, err := h.adminAuth(ctx)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	req := orgdto.NewUpdateMemberStatusReq()
+	if err = h.ParseAndValidateJSONBody(ctx, req); err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	resp, err := h.orgUC.UpdateMemberStatus(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID), ctx.Param(paramUserID),
+		req)
 	if err != nil {
 		h.RenderError(ctx, err)
 		return

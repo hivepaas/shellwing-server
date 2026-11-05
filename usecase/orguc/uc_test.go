@@ -194,10 +194,13 @@ func TestOnlyAnActiveMemberGetsOne(t *testing.T) {
 	_, err := e.uc.CreateSSHCA(ctx, admin, e.org)
 	require.NoError(t, err)
 
-	for _, status := range []base.OrgMemberStatus{base.OrgMemberStatusDisabled, base.OrgMemberStatusInvited} {
-		person := e.addMember(t, e.org, base.OrgRoleMember, status)
+	for _, status := range []base.OrgMemberStatus{base.OrgMemberStatusSuspended, base.OrgMemberStatusRemoved} {
+		person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
 		_, err = e.uc.SetSSHPrincipals(ctx, admin, e.org, person.UserID(),
 			&orgdto.SetSSHPrincipalsReq{Principals: []string{"deploy"}})
+		require.NoError(t, err)
+		_, err = e.db.NewUpdate().Model((*entity.OrgMember)(nil)).Set("status = ?", status).
+			Where("org_id = ?", e.org).Where("user_id = ?", person.UserID()).Exec(ctx)
 		require.NoError(t, err)
 		_, err = e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
 		require.ErrorIs(t, err, hperrors.ErrNotFound, string(status))
@@ -338,7 +341,7 @@ func TestListOrgsLeavesOutWhereThePersonIsNotActive(t *testing.T) {
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
 	other := e.addOrg(t)
 	_, err := e.db.NewInsert().Model(&entity.OrgMember{
-		OrgID: other, UserID: person.UserID(), Role: base.OrgRoleMember, Status: base.OrgMemberStatusDisabled,
+		OrgID: other, UserID: person.UserID(), Role: base.OrgRoleMember, Status: base.OrgMemberStatusSuspended,
 	}).Exec(ctx)
 	require.NoError(t, err)
 
@@ -353,9 +356,9 @@ func TestListOrgsLeavesOutWhereThePersonIsNotActive(t *testing.T) {
 func TestAnAdminListsTheMembersWithWhatTheyMayLogInAs(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	admin := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
-	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusInvited)
+	suspended := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusSuspended)
 	_ = e.addMember(t, e.addOrg(t), base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err := e.uc.SetSSHPrincipals(ctx, admin, e.org, member.UserID(),
+	_, err := e.uc.SetSSHPrincipals(ctx, admin, e.org, suspended.UserID(),
 		&orgdto.SetSSHPrincipalsReq{Principals: []string{"deploy"}})
 	require.NoError(t, err)
 
@@ -366,14 +369,167 @@ func TestAnAdminListsTheMembersWithWhatTheyMayLogInAs(t *testing.T) {
 		got[m.UserID] = m
 	}
 	require.Len(t, got, 2, "only this organization's")
-	assert.Equal(t, []string{"deploy"}, got[member.UserID()].SSHPrincipals)
-	assert.Equal(t, base.OrgMemberStatusInvited, got[member.UserID()].Status)
+	assert.Equal(t, []string{"deploy"}, got[suspended.UserID()].SSHPrincipals)
+	assert.Equal(t, base.OrgMemberStatusSuspended, got[suspended.UserID()].Status)
+	assert.Equal(t, base.UserStatusActive, got[suspended.UserID()].AccountStatus)
 	assert.Equal(t, []string{}, got[admin.UserID()].SSHPrincipals, "none until granted")
 	assert.NotEmpty(t, got[admin.UserID()].Username)
 
-	_, err = e.uc.ListMembers(ctx, member, e.org)
-	require.ErrorIs(t, err, hperrors.ErrNotFound, "an invited member is no member yet")
+	_, err = e.uc.ListMembers(ctx, suspended, e.org)
+	require.ErrorIs(t, err, hperrors.ErrNotFound, "a suspended member is no member for now")
+}
+
+func TestAMemberSeesTheOthersByNameAndRoleOnly(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	admin := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
+	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_ = e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusSuspended)
+	_, err := e.uc.SetSSHPrincipals(ctx, admin, e.org, admin.UserID(),
+		&orgdto.SetSSHPrincipalsReq{Principals: []string{"root"}})
+	require.NoError(t, err)
+
+	resp, err := e.uc.ListMembers(ctx, member, e.org)
+	require.NoError(t, err)
+	require.Len(t, resp.Data, 2, "the active ones")
+	for _, m := range resp.Data {
+		assert.NotEmpty(t, m.Username)
+		assert.NotEmpty(t, m.Role)
+		assert.Empty(t, m.Email)
+		assert.Empty(t, m.Status)
+		assert.Nil(t, m.SSHPrincipals, "what others may log in as is for admins")
+	}
+}
+
+func TestWhoChangesWhichRole(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	admin := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
+	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	role := func(by *basedto.Auth, who *basedto.Auth, to base.OrgRole) error {
+		_, err := e.uc.UpdateMemberRole(ctx, by, e.org, who.UserID(), &orgdto.UpdateMemberRoleReq{Role: to})
+		return err
+	}
+	roleOf := func(who *basedto.Auth) base.OrgRole {
+		m, err := repository.NewOrganizationRepo().GetMember(ctx, e.db, e.org, who.UserID())
+		require.NoError(t, err)
+		return m.Role
+	}
+
+	require.ErrorIs(t, role(member, member, base.OrgRoleAdmin), hperrors.ErrForbidden)
+	require.ErrorIs(t, role(admin, member, base.OrgRoleOwner), hperrors.ErrForbidden, "only an owner makes one")
+	require.ErrorIs(t, role(admin, owner, base.OrgRoleMember), hperrors.ErrForbidden, "nor changes one")
+
+	require.NoError(t, role(admin, member, base.OrgRoleAdmin))
+	assert.Equal(t, base.OrgRoleAdmin, roleOf(member))
+	require.NoError(t, role(admin, member, base.OrgRoleMember), "an admin changes another admin")
+	assert.Equal(t, base.OrgRoleMember, roleOf(member))
+
+	require.NoError(t, role(owner, member, base.OrgRoleOwner))
+	assert.Equal(t, base.OrgRoleOwner, roleOf(member))
+	require.NoError(t, role(member, owner, base.OrgRoleAdmin), "the new owner hands the old one admin")
+	assert.Equal(t, base.OrgRoleAdmin, roleOf(owner))
+
+	require.Len(t, e.audit.entries, 4)
+	last := e.audit.entries[3]
+	assert.Equal(t, base.AuditLogTypeOrgMemberUpdate, last.Type)
+	assert.Equal(t, "role", last.Section)
+	assert.Equal(t, owner.UserID(), last.ResID)
+	assert.Contains(t, last.Detail, `"from":"owner"`)
+	assert.Contains(t, last.Detail, `"to":"admin"`)
+}
+
+func TestTheLastActiveOwnerStaysOne(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	other := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_, err := e.db.NewUpdate().Model((*entity.User)(nil)).Set("status = ?", base.UserStatusDisabled).
+		Where("id = ?", other.UserID()).Exec(ctx)
+	require.NoError(t, err)
+	_ = e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusSuspended)
+
+	// Neither a disabled account nor a suspended owner keeps the organization.
+	_, err = e.uc.UpdateMemberRole(ctx, owner, e.org, owner.UserID(),
+		&orgdto.UpdateMemberRoleReq{Role: base.OrgRoleAdmin})
+	require.ErrorIs(t, err, hperrors.ErrOrgLastOwner)
+	for _, status := range []base.OrgMemberStatus{base.OrgMemberStatusSuspended, base.OrgMemberStatusRemoved} {
+		_, err = e.uc.UpdateMemberStatus(ctx, owner, e.org, owner.UserID(),
+			&orgdto.UpdateMemberStatusReq{Status: status})
+		require.ErrorIs(t, err, hperrors.ErrOrgLastOwner, string(status))
+	}
+
+	// With another active owner, they may leave.
+	next := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err = e.uc.UpdateMemberRole(ctx, owner, e.org, next.UserID(), &orgdto.UpdateMemberRoleReq{Role: base.OrgRoleOwner})
+	require.NoError(t, err)
+	_, err = e.uc.UpdateMemberStatus(ctx, owner, e.org, owner.UserID(),
+		&orgdto.UpdateMemberStatusReq{Status: base.OrgMemberStatusRemoved})
+	require.NoError(t, err)
+}
+
+func TestARemovedMemberLosesWhatTheyWereGranted(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	person := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
+	_, err = e.uc.SetSSHPrincipals(ctx, owner, e.org, person.UserID(),
+		&orgdto.SetSSHPrincipalsReq{Principals: []string{"deploy"}})
+	require.NoError(t, err)
+	status := func(to base.OrgMemberStatus) error {
+		_, err := e.uc.UpdateMemberStatus(ctx, owner, e.org, person.UserID(), &orgdto.UpdateMemberStatusReq{Status: to})
+		return err
+	}
+
+	// Suspended, they get nothing, and keep what they had.
+	require.NoError(t, status(base.OrgMemberStatusSuspended))
+	_, err = e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.ErrorIs(t, err, hperrors.ErrNotFound)
+	require.NoError(t, status(base.OrgMemberStatusActive))
+	_, err = e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+
+	// Removed, it is gone; brought back, they are a member with nothing.
+	require.NoError(t, status(base.OrgMemberStatusRemoved))
+	_, err = e.uc.GetSSHPrincipals(ctx, owner, e.org, person.UserID())
+	require.ErrorIs(t, err, hperrors.ErrNotFound)
+	_, err = e.uc.SetSSHPrincipals(ctx, owner, e.org, person.UserID(),
+		&orgdto.SetSSHPrincipalsReq{Principals: []string{"root"}})
+	require.ErrorIs(t, err, hperrors.ErrNotFound)
+	_, err = e.uc.UpdateMemberRole(ctx, owner, e.org, person.UserID(),
+		&orgdto.UpdateMemberRoleReq{Role: base.OrgRoleAdmin})
+	require.ErrorIs(t, err, hperrors.ErrNotFound)
+	require.NoError(t, status(base.OrgMemberStatusActive))
+	resp, err := e.uc.ListMembers(ctx, owner, e.org)
+	require.NoError(t, err)
+	for _, m := range resp.Data {
+		if m.UserID == person.UserID() {
+			assert.Equal(t, base.OrgRoleMember, m.Role)
+			assert.Empty(t, m.SSHPrincipals)
+		}
+	}
+	_, err = e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.ErrorIs(t, err, hperrors.ErrSSHNoPrincipals)
+}
+
+func TestAMemberMayLeaveAndDoNothingElse(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	_ = e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	admin := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
+	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
 	other := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err = e.uc.ListMembers(ctx, other, e.org)
-	require.ErrorIs(t, err, hperrors.ErrForbidden)
+	status := func(by, who *basedto.Auth, to base.OrgMemberStatus) error {
+		_, err := e.uc.UpdateMemberStatus(ctx, by, e.org, who.UserID(), &orgdto.UpdateMemberStatusReq{Status: to})
+		return err
+	}
+
+	require.ErrorIs(t, status(member, other, base.OrgMemberStatusRemoved), hperrors.ErrForbidden)
+	require.ErrorIs(t, status(member, member, base.OrgMemberStatusSuspended), hperrors.ErrForbidden)
+	require.NoError(t, status(member, member, base.OrgMemberStatusRemoved))
+	_, err := e.uc.ListMembers(ctx, member, e.org)
+	require.ErrorIs(t, err, hperrors.ErrNotFound, "gone")
+
+	// An admin takes out another admin; nobody but an owner takes out an owner.
+	require.NoError(t, status(admin, other, base.OrgMemberStatusSuspended))
+	second := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
+	require.NoError(t, status(admin, second, base.OrgMemberStatusRemoved))
 }

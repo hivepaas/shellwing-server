@@ -38,3 +38,9 @@ var (
 	// configuration. Its param Name is the name.
 	ErrSSHPrincipalInvalid = NewErr(ErrArgumentInvalid, "ERR_SSH_PRINCIPAL_INVALID")
 )
+
+// Errors for organizations' members.
+var (
+	// ErrOrgLastOwner refuses a change that would leave the organization with no active owner: another is made first.
+	ErrOrgLastOwner = NewErr(ErrPreconditionFailed, "ERR_ORG_LAST_OWNER")
+)

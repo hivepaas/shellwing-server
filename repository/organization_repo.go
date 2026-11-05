@@ -19,11 +19,15 @@ type OrganizationRepo interface {
 	// InsertIfAbsent makes the organization unless its slug is taken: two instances starting together make one.
 	InsertIfAbsent(ctx context.Context, db database.IDB, org *entity.Organization) error
 
-	// UpsertMembers adds members and updates those there. An owner stays an owner: nothing else takes that from them.
-	UpsertMembers(ctx context.Context, db database.IDB, members []*entity.OrgMember) error
+	// AddMembers adds the members who are not there yet, and leaves alone those who are, removed ones included.
+	AddMembers(ctx context.Context, db database.IDB, members []*entity.OrgMember) error
+	// UpdateMember saves a member's role, status and principals.
+	UpdateMember(ctx context.Context, db database.IDB, member *entity.OrgMember) error
 	DeleteMember(ctx context.Context, db database.IDB, orgID, userID string) error
-	// AddAllUsers makes every user who is not a member of the organization one, as their role and status say.
+	// AddAllUsers makes every user who is not a member of the organization an active one.
 	AddAllUsers(ctx context.Context, db database.IDB, orgID string) error
+	// CountActiveOwners counts the active owners whose accounts are active, but for the user named.
+	CountActiveOwners(ctx context.Context, db database.IDB, orgID, exceptUserID string) (int, error)
 
 	// LockByID returns the organization with its row locked, or nil. What changes its CAs takes this first.
 	LockByID(ctx context.Context, db database.IDB, id string) (*entity.Organization, error)
@@ -32,7 +36,7 @@ type OrganizationRepo interface {
 	SetSSHCertTTL(ctx context.Context, db database.IDB, id string, minutes int) error
 	// GetMember returns nil when the user is not a member.
 	GetMember(ctx context.Context, db database.IDB, orgID, userID string) (*entity.OrgMember, error)
-	// ListMembers returns the organization's members who are users still, by username.
+	// ListMembers returns the organization's members who are users still, removed ones included, by username.
 	ListMembers(ctx context.Context, db database.IDB, orgID string) ([]*entity.OrgMemberUser, error)
 	// ListMembershipsOfUser returns the user's memberships, as active members, of organizations that are active.
 	ListMembershipsOfUser(ctx context.Context, db database.IDB, userID string) ([]*entity.OrgMember, error)
@@ -67,20 +71,50 @@ func (repo *organizationRepo) InsertIfAbsent(ctx context.Context, db database.ID
 	return nil
 }
 
-func (repo *organizationRepo) UpsertMembers(ctx context.Context, db database.IDB, members []*entity.OrgMember) error {
+func (repo *organizationRepo) AddMembers(ctx context.Context, db database.IDB, members []*entity.OrgMember) error {
 	if len(members) == 0 {
 		return nil
 	}
-	_, err := db.NewInsert().Model(&members).
-		On("CONFLICT (org_id, user_id) DO UPDATE").
-		Set("role = CASE WHEN org_member.role = 'owner' THEN org_member.role ELSE EXCLUDED.role END").
-		Set("status = EXCLUDED.status").
-		Set("updated_at = EXCLUDED.updated_at").
-		Exec(ctx)
+	_, err := db.NewInsert().Model(&members).On("CONFLICT (org_id, user_id) DO NOTHING").Exec(ctx)
 	if err != nil {
 		return hperrors.Wrap(err)
 	}
 	return nil
+}
+
+func (repo *organizationRepo) UpdateMember(ctx context.Context, db database.IDB, member *entity.OrgMember) error {
+	_, err := db.NewUpdate().Model((*entity.OrgMember)(nil)).
+		Set("role = ?", member.Role).
+		Set("status = ?", member.Status).
+		Set("ssh_principals = ?", pgdialect.Array(orEmpty(member.SSHPrincipals))).
+		Set("updated_at = CURRENT_TIMESTAMP").
+		Where("org_id = ?", member.OrgID).Where("user_id = ?", member.UserID).Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *organizationRepo) CountActiveOwners(ctx context.Context, db database.IDB,
+	orgID, exceptUserID string) (int, error) {
+	count, err := db.NewSelect().TableExpr("org_members AS m").
+		Join("JOIN users AS u ON u.id = m.user_id AND u.deleted_at IS NULL AND u.status = ?", base.UserStatusActive).
+		Where("m.org_id = ?", orgID).
+		Where("m.role = ?", base.OrgRoleOwner).
+		Where("m.status = ?", base.OrgMemberStatusActive).
+		Where("m.user_id <> ?", exceptUserID).
+		Count(ctx)
+	if err != nil {
+		return 0, hperrors.Wrap(err)
+	}
+	return int(count), nil
+}
+
+func orEmpty(names []string) []string {
+	if names == nil {
+		return []string{}
+	}
+	return names
 }
 
 func (repo *organizationRepo) DeleteMember(ctx context.Context, db database.IDB, orgID, userID string) error {
@@ -95,9 +129,7 @@ func (repo *organizationRepo) DeleteMember(ctx context.Context, db database.IDB,
 func (repo *organizationRepo) AddAllUsers(ctx context.Context, db database.IDB, orgID string) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO org_members (org_id, user_id, role, status)
-		SELECT ?, u.id,
-		       CASE WHEN u.role = 'admin' THEN 'admin' ELSE 'member' END,
-		       CASE u.status WHEN 'pending' THEN 'invited' ELSE u.status END
+		SELECT ?, u.id, 'member', 'active'
 		FROM users u
 		WHERE u.deleted_at IS NULL
 		ON CONFLICT (org_id, user_id) DO NOTHING`, orgID)
@@ -178,6 +210,7 @@ func (repo *organizationRepo) ListMembers(ctx context.Context, db database.IDB,
 	err := db.NewSelect().TableExpr("org_members AS m").
 		Join("JOIN users AS u ON u.id = m.user_id AND u.deleted_at IS NULL").
 		ColumnExpr("m.user_id, m.role, m.status, m.ssh_principals, u.username, u.email, u.full_name").
+		ColumnExpr("u.status AS account_status").
 		Where("m.org_id = ?", orgID).
 		OrderExpr("u.username").
 		Scan(ctx, &members)
