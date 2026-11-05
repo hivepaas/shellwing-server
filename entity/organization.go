@@ -25,7 +25,7 @@ func (o *Organization) GetID() string {
 	return o.ID
 }
 
-// OrgMemberUser is a member as an admin lists them: with who they are.
+// OrgMemberUser is a member as the organization lists them: with who they are, and whether their account is active.
 type OrgMemberUser struct {
 	UserID        string               `bun:"user_id"`
 	Role          base.OrgRole         `bun:"role"`
@@ -34,6 +34,7 @@ type OrgMemberUser struct {
 	Username      string               `bun:"username"`
 	Email         string               `bun:"email,nullzero"`
 	FullName      string               `bun:"full_name"`
+	AccountStatus base.UserStatus      `bun:"account_status"`
 }
 
 type OrgMember struct {

@@ -16,3 +16,4 @@ ERR_SSH_CA_ACTIVE = "This certificate authority is the active one. Make a new on
 ERR_SSH_NO_PRINCIPALS = "You have no accounts to log in as. An admin of this organization can grant them."
 ERR_SSH_PUBLIC_KEY_INVALID = "This is not an SSH public key that can be signed. Use an Ed25519, ECDSA, security key or RSA key of at least 2048 bits."
 ERR_SSH_PRINCIPAL_INVALID = "\"{{.Name}}\" cannot be an account name"
+ERR_ORG_LAST_OWNER = "The organization needs an active owner. Make somebody else an owner first."

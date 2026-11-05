@@ -63,8 +63,11 @@ func (s *service) MakeOwner(ctx context.Context, db database.IDB, user *entity.U
 		return err
 	}
 	member := newMember(org.ID, user)
+	if err = s.orgRepo.AddMembers(ctx, db, []*entity.OrgMember{member}); err != nil {
+		return hperrors.Wrap(err)
+	}
 	member.Role = base.OrgRoleOwner
-	return s.orgRepo.UpsertMembers(ctx, db, []*entity.OrgMember{member}) //nolint:wrapcheck // the repo's own
+	return s.orgRepo.UpdateMember(ctx, db, member) //nolint:wrapcheck // the repo's own
 }
 
 func (s *service) SyncUsers(ctx context.Context, db database.IDB, users []*entity.User) error {
@@ -85,7 +88,7 @@ func (s *service) SyncUsers(ctx context.Context, db database.IDB, users []*entit
 		}
 		members = append(members, newMember(org.ID, user))
 	}
-	return s.orgRepo.UpsertMembers(ctx, db, members) //nolint:wrapcheck // the repo's own
+	return s.orgRepo.AddMembers(ctx, db, members) //nolint:wrapcheck // the repo's own
 }
 
 func (s *service) RemoveUser(ctx context.Context, db database.IDB, userID string) error {
@@ -115,30 +118,16 @@ func (s *service) requireDefaultOrg(ctx context.Context, db database.IDB) (*enti
 	return org, nil
 }
 
+// newMember is a user joining as a member: being an admin of the server makes nobody an admin of the organization.
 func newMember(orgID string, user *entity.User) *entity.OrgMember {
 	timeNow := timeutil.NowUTC()
-	role := base.OrgRoleMember
-	if user.IsAdmin() {
-		role = base.OrgRoleAdmin
-	}
 	return &entity.OrgMember{
-		OrgID:     orgID,
-		UserID:    user.ID,
-		Role:      role,
-		Status:    memberStatusOf(user.Status),
-		CreatedAt: timeNow,
-		UpdatedAt: timeNow,
+		OrgID:         orgID,
+		UserID:        user.ID,
+		Role:          base.OrgRoleMember,
+		Status:        base.OrgMemberStatusActive,
+		SSHPrincipals: []string{},
+		CreatedAt:     timeNow,
+		UpdatedAt:     timeNow,
 	}
-}
-
-func memberStatusOf(status base.UserStatus) base.OrgMemberStatus {
-	switch status {
-	case base.UserStatusActive:
-		return base.OrgMemberStatusActive
-	case base.UserStatusPending:
-		return base.OrgMemberStatusInvited
-	case base.UserStatusDisabled:
-		return base.OrgMemberStatusDisabled
-	}
-	return base.OrgMemberStatusDisabled
 }

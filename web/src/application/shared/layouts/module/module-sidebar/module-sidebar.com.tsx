@@ -20,6 +20,7 @@ import {
     ScrollText,
     ShieldCheck,
     Users,
+    UsersRound,
 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 
@@ -163,6 +164,13 @@ const navMain: SidebarItem[] = [
         pattern: "#",
         icon: ShieldCheck,
         items: [
+            {
+                title: "Members",
+                icon: UsersRound,
+                route: ROUTE.organization.members.$route,
+                pattern: ROUTE.organization.members.$pattern,
+                requiresOrgAdmin: true,
+            },
             {
                 title: "SSH Certificates",
                 icon: FileKey,

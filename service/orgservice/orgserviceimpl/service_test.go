@@ -67,13 +67,13 @@ func TestDefaultOrganization(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, org.ID, again.ID, "one organization, however often")
 
-	// Users from before it are made members.
+	// Users from before it are made members, whatever they are on the server.
 	member := memberOf(t, db, org.ID, before.ID)
 	require.NotNil(t, member)
-	assert.Equal(t, base.OrgRoleAdmin, member.Role)
-	assert.Equal(t, base.OrgMemberStatusInvited, member.Status)
+	assert.Equal(t, base.OrgRoleMember, member.Role)
+	assert.Equal(t, base.OrgMemberStatusActive, member.Status)
 
-	// A new one, then the changes a user goes through.
+	// A new one, then the changes a user goes through: none is the organization's.
 	user := insertUser(t, db, base.UserRoleMember, base.UserStatusActive)
 	require.NoError(t, s.SyncUsers(ctx, db, []*entity.User{user}))
 	member = memberOf(t, db, org.ID, user.ID)
@@ -84,14 +84,23 @@ func TestDefaultOrganization(t *testing.T) {
 	user.Role, user.Status = base.UserRoleAdmin, base.UserStatusDisabled
 	require.NoError(t, s.SyncUsers(ctx, db, []*entity.User{user}))
 	member = memberOf(t, db, org.ID, user.ID)
-	assert.Equal(t, base.OrgRoleAdmin, member.Role)
-	assert.Equal(t, base.OrgMemberStatusDisabled, member.Status)
+	assert.Equal(t, base.OrgRoleMember, member.Role, "an admin of the server is not one of the organization")
+	assert.Equal(t, base.OrgMemberStatusActive, member.Status)
 
-	// An owner stays one when their user is saved.
+	// The first admin owns it, and stays the owner when their user is saved.
 	require.NoError(t, s.MakeOwner(ctx, db, user))
 	assert.Equal(t, base.OrgRoleOwner, memberOf(t, db, org.ID, user.ID).Role)
 	require.NoError(t, s.SyncUsers(ctx, db, []*entity.User{user}))
 	assert.Equal(t, base.OrgRoleOwner, memberOf(t, db, org.ID, user.ID).Role)
+
+	// A member an admin removed is not made one again by saving their user.
+	removed := insertUser(t, db, base.UserRoleMember, base.UserStatusActive)
+	require.NoError(t, s.SyncUsers(ctx, db, []*entity.User{removed}))
+	_, err = db.NewUpdate().Model((*entity.OrgMember)(nil)).Set("status = ?", base.OrgMemberStatusRemoved).
+		Where("org_id = ?", org.ID).Where("user_id = ?", removed.ID).Exec(ctx)
+	require.NoError(t, err)
+	require.NoError(t, s.SyncUsers(ctx, db, []*entity.User{removed}))
+	assert.Equal(t, base.OrgMemberStatusRemoved, memberOf(t, db, org.ID, removed.ID).Status)
 
 	// Deleted, either way, they are no member.
 	user.DeletedAt = timeutil.NowUTC()

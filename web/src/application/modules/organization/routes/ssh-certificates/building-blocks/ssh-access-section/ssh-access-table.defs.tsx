@@ -40,9 +40,11 @@ function createColumns(orgId: string): ColumnDef<OrgMember>[] {
                 titleAlign: "center",
             },
             cell: ({ row: { original } }) => (
-                <div className="flex items-center justify-center">
-                    <OrgMemberStatusBadge status={original.status} />
-                </div>
+                <OrgMemberStatusBadge
+                    status={original.status}
+                    accountStatus={original.accountStatus}
+                    className="justify-center"
+                />
             ),
         },
         {

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import { OrgMembersQueries } from "~/organization/data/queries";
+import { EOrgMemberStatus } from "~/organization/domain";
 
 import { ContentBlock, TableActions } from "@application/shared/components";
 import { useTableState } from "@application/shared/hooks/table";
@@ -14,9 +15,10 @@ export function SshAccessSection({ orgId }: Props) {
     const { data, isFetching } = OrgMembersQueries.useFindMany({ orgId });
     const columns = useMemo(() => SshAccessTableDefs.columns(orgId), [orgId]);
 
-    // The server sends every member at once, sorted by username: the search narrows them here.
+    // The server sends every member at once, sorted by username: the search narrows them here. A removed member has
+    // no accounts, and can be given none until added back.
     const members = useMemo(() => {
-        const all = data?.data ?? [];
+        const all = (data?.data ?? []).filter(member => member.status !== EOrgMemberStatus.Removed);
         const term = search.trim().toLowerCase();
 
         if (!term) {

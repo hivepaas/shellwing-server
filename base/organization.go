@@ -18,13 +18,23 @@ const (
 	OrgRoleMember OrgRole = "member"
 )
 
+// OrgMemberStatus is what the organization says of a member. Whether their account may sign in is the user's status.
 type OrgMemberStatus string
 
 const (
-	OrgMemberStatusActive   OrgMemberStatus = "active"
-	OrgMemberStatusInvited  OrgMemberStatus = "invited"
-	OrgMemberStatusDisabled OrgMemberStatus = "disabled"
+	OrgMemberStatusActive OrgMemberStatus = "active"
+	// OrgMemberStatusSuspended is a member an admin stopped for a while: the organization gives them nothing, and
+	// keeps what they were granted.
+	OrgMemberStatusSuspended OrgMemberStatus = "suspended"
+	// OrgMemberStatusRemoved is a member no more: what they were granted is gone, and they come back as a member.
+	OrgMemberStatusRemoved OrgMemberStatus = "removed"
 )
+
+var AllOrgRoles = []OrgRole{OrgRoleOwner, OrgRoleAdmin, OrgRoleMember}
+
+var AllOrgMemberStatuses = []OrgMemberStatus{
+	OrgMemberStatusActive, OrgMemberStatusSuspended, OrgMemberStatusRemoved,
+}
 
 type SpaceType string
 

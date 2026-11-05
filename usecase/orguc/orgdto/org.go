@@ -95,15 +95,17 @@ type UpdateSSHSettingsResp struct {
 	Meta *basedto.Meta `json:"meta"`
 }
 
-// MemberResp is a member of the organization as an admin sees them: who they are, and what they may log in as.
+// MemberResp is a member of the organization. An admin sees all of it; a member sees who the others are and their
+// role, and nothing of their email, status or accounts.
 type MemberResp struct {
 	UserID        string               `json:"userId"`
 	Username      string               `json:"username"`
-	Email         string               `json:"email"`
 	FullName      string               `json:"fullName"`
 	Role          base.OrgRole         `json:"role"`
-	Status        base.OrgMemberStatus `json:"status"`
-	SSHPrincipals []string             `json:"sshPrincipals"`
+	Email         string               `json:"email,omitzero"`
+	Status        base.OrgMemberStatus `json:"status,omitzero"`
+	AccountStatus base.UserStatus      `json:"accountStatus,omitzero"`
+	SSHPrincipals []string             `json:"sshPrincipals,omitzero"`
 }
 
 func TransformMember(m *entity.OrgMemberUser) *MemberResp {
@@ -114,11 +116,22 @@ func TransformMember(m *entity.OrgMemberUser) *MemberResp {
 	return &MemberResp{
 		UserID:        m.UserID,
 		Username:      m.Username,
-		Email:         m.Email,
 		FullName:      m.FullName,
 		Role:          m.Role,
+		Email:         m.Email,
 		Status:        m.Status,
+		AccountStatus: m.AccountStatus,
 		SSHPrincipals: principals,
+	}
+}
+
+// TransformMemberForMember is a member as another member sees them.
+func TransformMemberForMember(m *entity.OrgMemberUser) *MemberResp {
+	return &MemberResp{
+		UserID:   m.UserID,
+		Username: m.Username,
+		FullName: m.FullName,
+		Role:     m.Role,
 	}
 }
 
@@ -173,4 +186,42 @@ type SSHCertificateResp struct {
 type IssueSSHCertificateResp struct {
 	Meta *basedto.Meta       `json:"meta"`
 	Data *SSHCertificateResp `json:"data"`
+}
+
+// UpdateMemberRoleReq makes a member an owner, an admin or a member.
+type UpdateMemberRoleReq struct {
+	Role base.OrgRole `json:"role"`
+}
+
+func NewUpdateMemberRoleReq() *UpdateMemberRoleReq {
+	return &UpdateMemberRoleReq{}
+}
+
+// Validate implements interface basedto.ReqValidator
+func (req *UpdateMemberRoleReq) Validate() hperrors.ValidationErrors {
+	return hperrors.NewValidationErrors(vld.Validate(
+		basedto.ValidateStrIn(&req.Role, true, base.AllOrgRoles, "role")...))
+}
+
+type UpdateMemberRoleResp struct {
+	Meta *basedto.Meta `json:"meta"`
+}
+
+// UpdateMemberStatusReq suspends a member, removes them, or makes them active again.
+type UpdateMemberStatusReq struct {
+	Status base.OrgMemberStatus `json:"status"`
+}
+
+func NewUpdateMemberStatusReq() *UpdateMemberStatusReq {
+	return &UpdateMemberStatusReq{}
+}
+
+// Validate implements interface basedto.ReqValidator
+func (req *UpdateMemberStatusReq) Validate() hperrors.ValidationErrors {
+	return hperrors.NewValidationErrors(vld.Validate(
+		basedto.ValidateStrIn(&req.Status, true, base.AllOrgMemberStatuses, "status")...))
+}
+
+type UpdateMemberStatusResp struct {
+	Meta *basedto.Meta `json:"meta"`
 }

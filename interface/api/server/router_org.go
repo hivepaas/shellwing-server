@@ -10,6 +10,8 @@ func (s *HTTPServer) registerOrgRoutes(apiGroup *gin.RouterGroup) {
 
 	orgGroup.GET("", orgHandler.ListOrgs)
 	orgGroup.GET("/:orgID/members", orgHandler.ListMembers)
+	orgGroup.PUT("/:orgID/members/:userID/role", orgHandler.UpdateMemberRole)
+	orgGroup.PUT("/:orgID/members/:userID/status", orgHandler.UpdateMemberStatus)
 
 	sshGroup := orgGroup.Group("/:orgID/ssh")
 	sshGroup.GET("/cas", orgHandler.ListSSHCAs)
