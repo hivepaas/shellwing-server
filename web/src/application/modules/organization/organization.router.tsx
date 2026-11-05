@@ -30,11 +30,25 @@ export const organizationRouter: RouteObject = {
             path: ROUTE.organization.$pattern,
             element: (
                 <AppNavigate.Basic
-                    to={ROUTE.organization.sshCertificates.$route}
+                    to={ROUTE.organization.members.$route}
                     replace
                     ignorePrevPath
                 />
             ),
+        },
+        {
+            path: ROUTE.organization.members.$pattern,
+            lazy: async () => {
+                const { MembersRoute } = await getLazyComponents();
+
+                return {
+                    element: (
+                        <ModuleTitle title="Members">
+                            <MembersRoute />
+                        </ModuleTitle>
+                    ),
+                };
+            },
         },
         {
             path: ROUTE.organization.sshCertificates.$pattern,
