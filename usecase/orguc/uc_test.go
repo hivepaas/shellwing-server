@@ -73,7 +73,8 @@ func newEnv(t *testing.T) *env {
 	admin := open(conf)
 	t.Cleanup(func() { _ = admin.Close() })
 	stmts := []string{"CREATE SCHEMA " + schema}
-	for _, table := range []string{"organizations", "org_members", "ssh_cas", "users"} {
+	for _, table := range []string{"organizations", "org_members", "ssh_cas", "users", "org_groups",
+		"org_group_members"} {
 		stmts = append(stmts, "CREATE TABLE "+schema+"."+table+" (LIKE public."+table+" INCLUDING ALL)")
 	}
 	for _, stmt := range stmts {
@@ -90,7 +91,8 @@ func newEnv(t *testing.T) *env {
 	db := &database.DB{DB: bunDB}
 
 	audit := &fakeAudit{}
-	e := &env{uc: New(db, repository.NewOrganizationRepo(), repository.NewSSHCARepo(), audit), db: db, audit: audit}
+	e := &env{uc: New(db, repository.NewOrganizationRepo(), repository.NewSSHCARepo(), repository.NewOrgGroupRepo(),
+		audit), db: db, audit: audit}
 	e.org = e.addOrg(t)
 	return e
 }
@@ -532,4 +534,164 @@ func TestAMemberMayLeaveAndDoNothingElse(t *testing.T) {
 	require.NoError(t, status(admin, other, base.OrgMemberStatusSuspended))
 	second := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
 	require.NoError(t, status(admin, second, base.OrgMemberStatusRemoved))
+}
+
+func grant(t *testing.T, e *env, admin, who *basedto.Auth, principals ...string) {
+	t.Helper()
+	_, err := e.uc.SetSSHPrincipals(context.Background(), admin, e.org, who.UserID(),
+		&orgdto.SetSSHPrincipalsReq{Principals: principals})
+	require.NoError(t, err)
+}
+
+func newGroup(t *testing.T, e *env, admin *basedto.Auth, name string, principals ...string) string {
+	t.Helper()
+	resp, err := e.uc.CreateGroup(context.Background(), admin, e.org,
+		&orgdto.GroupReq{Name: name, SSHPrincipals: principals})
+	require.NoError(t, err)
+	return resp.Data.ID
+}
+
+func setMembers(e *env, admin *basedto.Auth, groupID string, who ...*basedto.Auth) error {
+	ids := make([]string, 0, len(who))
+	for _, w := range who {
+		ids = append(ids, w.UserID())
+	}
+	_, err := e.uc.SetGroupMembers(context.Background(), admin, e.org, groupID, &orgdto.SetGroupMembersReq{UserIDs: ids})
+	return err
+}
+
+func certifiedFor(t *testing.T, e *env, who *basedto.Auth) []string {
+	t.Helper()
+	resp, err := e.uc.IssueSSHCertificate(context.Background(), who, e.org, issueReq(t))
+	require.NoError(t, err)
+	return resp.Data.Principals
+}
+
+func TestAGroupsAccountsAreEachMembers(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	grant(t, e, owner, person, "app")
+	ops := newGroup(t, e, owner, "Ops", "root", "deploy", "app")
+	require.NoError(t, setMembers(e, owner, ops, person))
+
+	assert.Equal(t, []string{"app", "deploy", "root"}, certifiedFor(t, e, person), "theirs and the group's, once each")
+	orgs, err := e.uc.ListOrgs(ctx, person)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"app", "deploy", "root"}, orgs.Data[0].SSHPrincipals)
+	members, err := e.uc.ListMembers(ctx, owner, e.org)
+	require.NoError(t, err)
+	for _, m := range members.Data {
+		if m.UserID == person.UserID() {
+			assert.Equal(t, []string{"app"}, m.SSHPrincipals, "their own")
+			require.Len(t, m.Groups, 1)
+			assert.Equal(t, "Ops", m.Groups[0].Name)
+		}
+	}
+
+	_, err = e.uc.UpdateGroup(ctx, owner, e.org, ops, &orgdto.GroupReq{Name: "Ops", SSHPrincipals: []string{"deploy"}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"app", "deploy"}, certifiedFor(t, e, person))
+	_, err = e.uc.DeleteGroup(ctx, owner, e.org, ops)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"app"}, certifiedFor(t, e, person))
+
+	// A group alone is enough.
+	other := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err = e.uc.IssueSSHCertificate(ctx, other, e.org, issueReq(t))
+	require.ErrorIs(t, err, hperrors.ErrSSHNoPrincipals)
+	require.NoError(t, setMembers(e, owner, newGroup(t, e, owner, "Web", "web"), other))
+	assert.Equal(t, []string{"web"}, certifiedFor(t, e, other))
+}
+
+func TestAGroupNameIsTakenWhateverItsCase(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_ = newGroup(t, e, owner, "Ops")
+	_, err := e.uc.CreateGroup(ctx, owner, e.org, &orgdto.GroupReq{Name: "ops"})
+	require.ErrorIs(t, err, hperrors.ErrAlreadyExist)
+	web := newGroup(t, e, owner, "Web")
+	_, err = e.uc.UpdateGroup(ctx, owner, e.org, web, &orgdto.GroupReq{Name: "OPS"})
+	require.ErrorIs(t, err, hperrors.ErrAlreadyExist)
+	_, err = e.uc.UpdateGroup(ctx, owner, e.org, web, &orgdto.GroupReq{Name: "web", Description: "The web team"})
+	require.NoError(t, err, "its own name in another case")
+	_, err = e.uc.CreateGroup(ctx, owner, e.org, &orgdto.GroupReq{Name: "Bad", SSHPrincipals: []string{"a b"}})
+	require.ErrorIs(t, err, hperrors.ErrSSHPrincipalInvalid)
+
+	// Another organization has its own names.
+	e.org = e.addOrg(t)
+	other := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_ = newGroup(t, e, other, "Ops")
+}
+
+func TestOnlyAdminsTouchGroups(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	ops := newGroup(t, e, owner, "Ops", "root")
+
+	_, err := e.uc.ListGroups(ctx, member, e.org)
+	require.ErrorIs(t, err, hperrors.ErrForbidden)
+	_, err = e.uc.CreateGroup(ctx, member, e.org, &orgdto.GroupReq{Name: "Mine", SSHPrincipals: []string{"root"}})
+	require.ErrorIs(t, err, hperrors.ErrForbidden)
+	_, err = e.uc.UpdateGroup(ctx, member, e.org, ops, &orgdto.GroupReq{Name: "Ops", SSHPrincipals: []string{"root"}})
+	require.ErrorIs(t, err, hperrors.ErrForbidden)
+	require.ErrorIs(t, setMembers(e, member, ops, member), hperrors.ErrForbidden, "nobody joins root by themselves")
+	_, err = e.uc.DeleteGroup(ctx, member, e.org, ops)
+	require.ErrorIs(t, err, hperrors.ErrForbidden)
+}
+
+func TestAGroupHoldsOnlyItsOrganizationsMembers(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	ops := newGroup(t, e, owner, "Ops", "root")
+	orgA := e.org
+
+	orgB := e.addOrg(t)
+	outsider := e.addMember(t, orgB, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	require.ErrorIs(t, setMembers(e, owner, ops, outsider), hperrors.ErrNotFound)
+	removed := e.addMember(t, orgA, base.OrgRoleMember, base.OrgMemberStatusRemoved)
+	require.ErrorIs(t, setMembers(e, owner, ops, removed), hperrors.ErrNotFound)
+	suspended := e.addMember(t, orgA, base.OrgRoleMember, base.OrgMemberStatusSuspended)
+	require.NoError(t, setMembers(e, owner, ops, suspended), "suspended is a member still")
+
+	// The other organization's owner reaches none of it, through either organization.
+	for _, org := range []string{orgA, orgB} {
+		_, err := e.uc.UpdateGroup(ctx, outsider, org, ops, &orgdto.GroupReq{Name: "Mine", SSHPrincipals: []string{"x"}})
+		require.ErrorIs(t, err, hperrors.ErrNotFound, org)
+		_, err = e.uc.DeleteGroup(ctx, outsider, org, ops)
+		require.ErrorIs(t, err, hperrors.ErrNotFound, org)
+	}
+	groups, err := e.uc.ListGroups(ctx, outsider, orgB)
+	require.NoError(t, err)
+	assert.Empty(t, groups.Data)
+}
+
+func TestARemovedMemberLeavesEveryGroup(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	ops := newGroup(t, e, owner, "Ops", "root")
+	require.NoError(t, setMembers(e, owner, ops, person, owner))
+
+	status := func(to base.OrgMemberStatus) {
+		_, err := e.uc.UpdateMemberStatus(ctx, owner, e.org, person.UserID(), &orgdto.UpdateMemberStatusReq{Status: to})
+		require.NoError(t, err)
+	}
+	status(base.OrgMemberStatusSuspended)
+	status(base.OrgMemberStatusActive)
+	assert.Equal(t, []string{"root"}, certifiedFor(t, e, person), "suspending keeps the groups")
+
+	status(base.OrgMemberStatusRemoved)
+	status(base.OrgMemberStatusActive)
+	_, err = e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.ErrorIs(t, err, hperrors.ErrSSHNoPrincipals)
+	groups, err := e.uc.ListGroups(ctx, owner, e.org)
+	require.NoError(t, err)
+	require.Len(t, groups.Data[0].Members, 1, "the others stay")
+	assert.Equal(t, owner.UserID(), groups.Data[0].Members[0].UserID)
 }

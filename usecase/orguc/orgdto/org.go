@@ -19,11 +19,12 @@ type OrgResp struct {
 	Name              string       `json:"name"`
 	Role              base.OrgRole `json:"role"`
 	SSHCertTTLMinutes int          `json:"sshCertTtlMinutes"`
-	SSHPrincipals     []string     `json:"sshPrincipals"`
+	// SSHPrincipals are what the member's certificates may log in as: their own accounts and their groups'.
+	SSHPrincipals []string `json:"sshPrincipals"`
 }
 
-func TransformOrg(org *entity.Organization, member *entity.OrgMember) *OrgResp {
-	principals := member.SSHPrincipals
+// TransformOrg is the organization as one member sees it, with what their certificates may log in as.
+func TransformOrg(org *entity.Organization, member *entity.OrgMember, principals []string) *OrgResp {
 	if principals == nil {
 		principals = []string{}
 	}
@@ -106,14 +107,20 @@ type MemberResp struct {
 	Status        base.OrgMemberStatus `json:"status,omitzero"`
 	AccountStatus base.UserStatus      `json:"accountStatus,omitzero"`
 	SSHPrincipals []string             `json:"sshPrincipals,omitzero"`
+	// Groups are the groups the member is in, whose SSH accounts are theirs too.
+	Groups []*GroupRefResp `json:"groups,omitzero"`
 }
 
-func TransformMember(m *entity.OrgMemberUser) *MemberResp {
+func TransformMember(m *entity.OrgMemberUser, groups []*GroupRefResp) *MemberResp {
 	principals := m.SSHPrincipals
 	if principals == nil {
 		principals = []string{}
 	}
+	if groups == nil {
+		groups = []*GroupRefResp{}
+	}
 	return &MemberResp{
+		Groups:        groups,
 		UserID:        m.UserID,
 		Username:      m.Username,
 		FullName:      m.FullName,

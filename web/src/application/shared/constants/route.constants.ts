@@ -198,6 +198,11 @@ export const ROUTE = {
             $route: "/organization/members/",
         },
 
+        groups: {
+            $pattern: "organization/groups",
+            $route: "/organization/groups/",
+        },
+
         sshCertificates: {
             $pattern: "organization/ssh-certificates",
             $route: "/organization/ssh-certificates/",

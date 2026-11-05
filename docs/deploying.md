@@ -54,14 +54,17 @@ in the web app, or with the API below.
    ```
 
 3. An admin grants each person the accounts they may log in as:
-   `PUT /api/orgs/{org}/ssh/members/{user}/principals` with `{"principals": ["deploy"]}`. Nobody has any until granted,
-   owners included. A username is never one by itself: whoever could take the name `root` would get root on every server.
+   `PUT /api/orgs/{org}/ssh/members/{user}/principals` with `{"principals": ["deploy"]}`, or gives them to a group
+   (*Administration › Groups*, or `/api/orgs/{org}/groups`) whose members all get them. A person's certificates name
+   their own accounts and their groups'. Nobody has any until granted, owners included. A username is never one by
+   itself: whoever could take the name `root` would get root on every server.
 
 A certificate lasts 8 hours unless `PUT /api/orgs/{org}/ssh/settings` says otherwise, from 5 minutes to a day. Each one
 signed is in the audit log (`ssh-cert-issue`), and `sshd` logs the person and device of each login.
 
-**Taking access away.** A certificate cannot be revoked. Removing a person's accounts, or disabling them, stops new ones;
-revoking a device stops new ones on that device. The ones they hold work until they end, so keep the lifetime short.
+**Taking access away.** A certificate cannot be revoked. Removing a person's accounts or groups, suspending or
+removing them from the organization, or disabling their account stops new ones; revoking a device stops new ones on
+that device. The ones they hold work until they end, so keep the lifetime short.
 
 **Replacing the authority.** Making a new one retires the old at once, and destroys its private key: from then on
 certificates are signed by the new one only. Add its public key to the target servers beside the old one straight away,

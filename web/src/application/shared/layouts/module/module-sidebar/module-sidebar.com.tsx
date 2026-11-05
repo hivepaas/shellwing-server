@@ -7,6 +7,7 @@ import {
     CircleDashed,
     CircleUser,
     FileKey,
+    Group,
     HardDrive,
     IdCard,
     KeySquare,
@@ -169,6 +170,13 @@ const navMain: SidebarItem[] = [
                 icon: UsersRound,
                 route: ROUTE.organization.members.$route,
                 pattern: ROUTE.organization.members.$pattern,
+                requiresOrgAdmin: true,
+            },
+            {
+                title: "Groups",
+                icon: Group,
+                route: ROUTE.organization.groups.$route,
+                pattern: ROUTE.organization.groups.$pattern,
                 requiresOrgAdmin: true,
             },
             {

@@ -158,3 +158,14 @@ export function isSessionOverException(error: Error): boolean {
 export function isSshPrincipalInvalidException(error: Error): error is HttpException {
     return isHttpException(error) && error.code === "ERR_SSH_PRINCIPAL_INVALID";
 }
+
+/**
+ * Check if the error is a name taken already
+ *
+ * The server answers 409 ERR_ALREADY_EXIST when what is made or renamed would
+ * share its name with another of its kind. The form the name was typed in
+ * shows it beside it.
+ */
+export function isAlreadyExistException(error: Error): error is HttpException {
+    return isHttpException(error) && error.code === "ERR_ALREADY_EXIST";
+}
