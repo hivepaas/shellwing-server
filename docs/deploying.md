@@ -95,6 +95,29 @@ The encryption stops the server from reading or changing a record, not from hold
 keeps what it has: a record replayed from before is older than its own, and loses when they merge. A new device could
 start from an old copy.
 
+## Collections
+
+A collection is hosts, secrets and snippets an organization shares, synced like a personal space and encrypted the same
+way: with a key the server never has. Owners and admins make them, in *Administration › Collections* or with
+`/api/orgs/{org}/collections`, and grant people or groups Connect (see the hosts and connect), Edit (change them) or
+Manage (grant others, replace the key). Owners have Manage on every collection. An admin manages a collection's access
+and reads it only if granted.
+
+**The key.** A collection made on the web has none until the app of somebody with Manage opens it and makes one. People
+granted access then wait for it: the app of somebody holding it shows each person's fingerprint (theirs is on their
+*Profile*) and, once compared, wraps the key for that person's identity. The server checks each wrap is signed by the
+person giving it and made for the right identity, keeps one per person and key version, and serves it only to them.
+Somebody holding the key who loses access, by a grant removed, leaving a group or being removed, marks the collection
+as needing a new key, which the app of somebody with Manage makes. Suspending a member stops the server serving them,
+and is no reason for a new key.
+
+**What the server sees** of a collection: its name and description, who may do what, the size of its records, and how
+many are hosts. Each grant, new key, key given and key fetched by a device is in the audit log.
+
+Deleting a collection stops its sync at once; its files go after the store's trash delay.
+
+## Backups
+
 Back up PostgreSQL and the sync store together, database first: content a line needs is written before the line, so
 a store copied after the database has everything the database names. What the store holds beyond that is removed by
 the server in time. Redis holds nothing that cannot be lost.
