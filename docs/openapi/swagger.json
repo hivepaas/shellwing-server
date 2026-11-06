@@ -8025,7 +8025,7 @@
             "type" : "object"
           },
           "waiting" : {
-            "description" : "Waiting counts the people with access who are not given the current key yet.",
+            "description" : "Waiting counts the people with access who are not given the current key yet: none before the first.",
             "type" : "integer"
           }
         },

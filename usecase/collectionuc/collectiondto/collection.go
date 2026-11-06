@@ -31,7 +31,7 @@ type CollectionResp struct {
 	// Permission is the person's: connect, edit or manage, or empty for an admin with no grant.
 	Permission base.CollectionPermission `json:"permission"`
 	HasKey     bool                      `json:"hasKey"`
-	// Waiting counts the people with access who are not given the current key yet.
+	// Waiting counts the people with access who are not given the current key yet: none before the first.
 	Waiting int `json:"waiting"`
 	// NeedsNewKey says somebody holding the current key has lost access: an app with Manage replaces it.
 	NeedsNewKey bool `json:"needsNewKey"`

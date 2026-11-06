@@ -268,6 +268,7 @@ func TestOwnersAndAdminsMakeCollectionsAndAnAppGivesTheKey(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, base.CollectionPermissionManage, got.Permission)
 	assert.Zero(t, got.KeyVersion, "no key yet")
+	assert.Zero(t, got.Waiting, "nothing to wait for before the first key")
 	assert.Equal(t, base.CollectionPermissionManage, e.listed(t, owner, id).Permission)
 	assert.Nil(t, e.listed(t, member, id))
 	_, err = e.uc.Get(ctx, member.auth, e.org, id)

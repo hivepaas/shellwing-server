@@ -214,7 +214,10 @@ func transform(collection *entity.Collection, userID string, permission base.Col
 	}
 	resp.HasKey = s.holders[userID]
 	if manages {
-		resp.Waiting = s.waiting()
+		if collection.KeyVersion > 0 {
+			// Before the first key, nobody waits: the first app with Manage makes it.
+			resp.Waiting = s.waiting()
+		}
 		resp.NeedsNewKey = s.needsNewKey()
 	}
 	return resp

@@ -203,6 +203,11 @@ export const ROUTE = {
             $route: "/organization/groups/",
         },
 
+        collections: {
+            $pattern: "organization/collections",
+            $route: "/organization/collections/",
+        },
+
         sshCertificates: {
             $pattern: "organization/ssh-certificates",
             $route: "/organization/ssh-certificates/",

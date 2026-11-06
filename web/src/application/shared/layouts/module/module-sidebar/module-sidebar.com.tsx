@@ -7,6 +7,7 @@ import {
     CircleDashed,
     CircleUser,
     FileKey,
+    FolderLock,
     Group,
     HardDrive,
     IdCard,
@@ -177,6 +178,13 @@ const navMain: SidebarItem[] = [
                 icon: Group,
                 route: ROUTE.organization.groups.$route,
                 pattern: ROUTE.organization.groups.$pattern,
+                requiresOrgAdmin: true,
+            },
+            {
+                title: "Collections",
+                icon: FolderLock,
+                route: ROUTE.organization.collections.$route,
+                pattern: ROUTE.organization.collections.$pattern,
                 requiresOrgAdmin: true,
             },
             {
