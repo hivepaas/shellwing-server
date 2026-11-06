@@ -44,3 +44,10 @@ var (
 	// ErrOrgLastOwner refuses a change that would leave the organization with no active owner: another is made first.
 	ErrOrgLastOwner = NewErr(ErrPreconditionFailed, "ERR_ORG_LAST_OWNER")
 )
+
+// Errors for people's identities.
+var (
+	// ErrIdentityInvalid is an identity whose keys are not the right size, or whose X25519 key its Ed25519 key did not
+	// sign.
+	ErrIdentityInvalid = NewErr(ErrArgumentInvalid, "ERR_IDENTITY_INVALID")
+)

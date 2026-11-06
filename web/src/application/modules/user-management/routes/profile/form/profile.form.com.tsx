@@ -21,7 +21,7 @@ import { type ValidationException } from "@infrastructure/exceptions/validation"
 
 import { Separator } from "@/components/ui/separator";
 
-import { Information, Security } from "../form-components";
+import { EncryptionKey, Information, Security } from "../form-components";
 import { ProfileFormSchema, type ProfileFormSchemaInput, type ProfileFormSchemaOutput } from "../schemas";
 import { type ProfileFormRef } from "../types";
 
@@ -206,6 +206,9 @@ export function ProfileForm({ ref, defaultValues, isPhotoPending = false, onSubm
 
                     {/* Security */}
                     <Security defaultValues={defaultValues} />
+
+                    {/* Encryption Key */}
+                    <EncryptionKey />
 
                     {/* Module Access */}
                     <Separator className="opacity-50" />

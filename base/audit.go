@@ -116,6 +116,9 @@ const (
 	AuditLogTypeOrgMemberUpdate AuditLogType = "org-member-update"
 	// AuditLogTypeOrgGroupUpdate records a group made, changed or deleted, or its members set, with section naming which.
 	AuditLogTypeOrgGroupUpdate AuditLogType = "org-group-update"
+	// AuditLogTypeUserIdentityUpdate records a person publishing their identity, or another in its place, with its
+	// fingerprint.
+	AuditLogTypeUserIdentityUpdate AuditLogType = "user-identity-update"
 )
 
 var AllAuditLogTypes = []AuditLogType{
@@ -124,6 +127,7 @@ var AllAuditLogTypes = []AuditLogType{
 	AuditLogTypeSSHCertIssue,
 	AuditLogTypeOrgMemberUpdate,
 	AuditLogTypeOrgGroupUpdate,
+	AuditLogTypeUserIdentityUpdate,
 	AuditLogTypeSecretReveal,
 	AuditLogTypeUserCreate,
 	AuditLogTypeUserUpdate,

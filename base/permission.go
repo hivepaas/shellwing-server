@@ -20,6 +20,7 @@ const (
 	ResourceTypeSSHCert      ResourceType = "ssh-certificate"
 	ResourceTypeOrgMember    ResourceType = "org-member"
 	ResourceTypeOrgGroup     ResourceType = "org-group"
+	ResourceTypeUserIdentity ResourceType = "user-identity"
 	ResourceTypeOrganization ResourceType = "organization"
 	ResourceTypeModule       ResourceType = "module"
 	ResourceTypeNotification ResourceType = "notification"
