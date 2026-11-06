@@ -12,9 +12,9 @@ import (
 
 // IdentityResp is a person's identity: the public keys, base64, and the fingerprint people compare.
 type IdentityResp struct {
-	X25519Public  []byte    `json:"x25519Public"`
-	Ed25519Public []byte    `json:"ed25519Public"`
-	Signature     []byte    `json:"signature"`
+	X25519Public  []byte    `json:"x25519Public" swaggertype:"string" format:"byte"`
+	Ed25519Public []byte    `json:"ed25519Public" swaggertype:"string" format:"byte"`
+	Signature     []byte    `json:"signature" swaggertype:"string" format:"byte"`
 	Fingerprint   string    `json:"fingerprint"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
@@ -40,9 +40,9 @@ type GetIdentityResp struct {
 
 // PutIdentityReq is the identity the app publishes: the public keys and the signature, base64.
 type PutIdentityReq struct {
-	X25519Public  []byte `json:"x25519Public"`
-	Ed25519Public []byte `json:"ed25519Public"`
-	Signature     []byte `json:"signature"`
+	X25519Public  []byte `json:"x25519Public" swaggertype:"string" format:"byte"`
+	Ed25519Public []byte `json:"ed25519Public" swaggertype:"string" format:"byte"`
+	Signature     []byte `json:"signature" swaggertype:"string" format:"byte"`
 }
 
 func NewPutIdentityReq() *PutIdentityReq {
