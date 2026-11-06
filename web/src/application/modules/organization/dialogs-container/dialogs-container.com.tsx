@@ -2,13 +2,19 @@ import { memo } from "react";
 
 import { useLocation, useUpdateEffect } from "react-use";
 import {
+    DeleteCollectionDialog,
     DeleteOrgGroupDialog,
+    EditCollectionAccessDialog,
+    EditCollectionDialog,
     EditOrgGroupDialog,
     EditOrgGroupMembersDialog,
     EditSshPrincipalsDialog,
     RemoveOrgMemberDialog,
     ReplaceSshCaDialog,
+    useDeleteCollectionDialogState,
     useDeleteOrgGroupDialogState,
+    useEditCollectionAccessDialogState,
+    useEditCollectionDialogState,
     useEditOrgGroupDialogState,
     useEditOrgGroupMembersDialogState,
     useEditSshPrincipalsDialogState,
@@ -24,6 +30,9 @@ function View() {
     const editOrgGroupDialog = useEditOrgGroupDialogState();
     const editOrgGroupMembersDialog = useEditOrgGroupMembersDialogState();
     const deleteOrgGroupDialog = useDeleteOrgGroupDialogState();
+    const editCollectionDialog = useEditCollectionDialogState();
+    const editCollectionAccessDialog = useEditCollectionAccessDialogState();
+    const deleteCollectionDialog = useDeleteCollectionDialogState();
 
     useUpdateEffect(() => {
         replaceSshCaDialog.destroy();
@@ -32,6 +41,9 @@ function View() {
         editOrgGroupDialog.destroy();
         editOrgGroupMembersDialog.destroy();
         deleteOrgGroupDialog.destroy();
+        editCollectionDialog.destroy();
+        editCollectionAccessDialog.destroy();
+        deleteCollectionDialog.destroy();
     }, [location]);
 
     return (
@@ -42,6 +54,9 @@ function View() {
             <EditOrgGroupDialog />
             <EditOrgGroupMembersDialog />
             <DeleteOrgGroupDialog />
+            <EditCollectionDialog />
+            <EditCollectionAccessDialog />
+            <DeleteCollectionDialog />
         </>
     );
 }

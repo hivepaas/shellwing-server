@@ -34,6 +34,9 @@ type SyncRepo interface {
 	AddTrash(ctx context.Context, db database.IDB, spaceID, name, etag string, deleteAfter time.Time) error
 	ListDueTrash(ctx context.Context, db database.IDB, now time.Time, limit int) ([]*entity.SyncTrash, error)
 	DeleteTrash(ctx context.Context, db database.IDB, item *entity.SyncTrash) error
+	// TrashAll removes every file of a space, noting their content to go after the delay. The space is not changed:
+	// nobody syncs it any more.
+	TrashAll(ctx context.Context, db database.IDB, spaceID string, deleteAfter time.Time) error
 	// TrashedETags returns the versions of the names noted in the trash, as name to ETags.
 	TrashedETags(ctx context.Context, db database.IDB, spaceID string, names []string) (map[string][]string, error)
 }
@@ -157,6 +160,24 @@ func (repo *syncRepo) AddTrash(ctx context.Context, db database.IDB, spaceID, na
 		On("CONFLICT (space_id, name, etag) DO UPDATE").
 		Set("delete_after = EXCLUDED.delete_after").
 		Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *syncRepo) TrashAll(ctx context.Context, db database.IDB, spaceID string, deleteAfter time.Time) error {
+	_, err := db.NewRaw(`
+INSERT INTO sync_trash (space_id, name, etag, delete_after)
+SELECT space_id, name, etag, ? FROM sync_objects WHERE space_id = ? AND deleted_at IS NULL
+ON CONFLICT (space_id, name, etag) DO UPDATE SET delete_after = EXCLUDED.delete_after`,
+		deleteAfter, spaceID).Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	_, err = db.NewUpdate().Model((*entity.SyncObject)(nil)).
+		Set("deleted_at = CURRENT_TIMESTAMP").Set("updated_at = CURRENT_TIMESTAMP").
+		Where("space_id = ?", spaceID).Where("deleted_at IS NULL").Exec(ctx)
 	if err != nil {
 		return hperrors.Wrap(err)
 	}

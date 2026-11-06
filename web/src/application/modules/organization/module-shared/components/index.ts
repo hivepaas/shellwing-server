@@ -4,3 +4,5 @@ export * from "./public-key-block";
 export * from "./ssh-principal-badges";
 export * from "./ssh-principals-field";
 export * from "./org-group-badges";
+export * from "./collection-permission-badge";
+export * from "./collection-key-badges";

@@ -11,6 +11,7 @@ import (
 	"github.com/hivepaas/shellwing-server/interface/api/handler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/auditloghandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/authhandler"
+	"github.com/hivepaas/shellwing-server/interface/api/handler/collectionhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/devhelperhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/identityhandler"
 	"github.com/hivepaas/shellwing-server/interface/api/handler/imagehandler"
@@ -24,25 +25,27 @@ import (
 )
 
 type HandlerRegistry struct {
-	baseHandler      *handler.BaseHandler
-	authHandler      *authhandler.Handler
-	auditLogHandler  *auditloghandler.Handler
-	devHelperHandler *devhelperhandler.Handler
-	identityHandler  *identityhandler.Handler
-	imageHandler     *imagehandler.Handler
-	orgHandler       *orghandler.Handler
-	sessionHandler   *sessionhandler.Handler
-	settingHandler   *settinghandler.Handler
-	supportHandler   *supporthandler.Handler
-	syncHandler      *synchandler.Handler
-	systemHandler    *systemhandler.Handler
-	userHandler      *userhandler.Handler
+	baseHandler       *handler.BaseHandler
+	authHandler       *authhandler.Handler
+	auditLogHandler   *auditloghandler.Handler
+	collectionHandler *collectionhandler.Handler
+	devHelperHandler  *devhelperhandler.Handler
+	identityHandler   *identityhandler.Handler
+	imageHandler      *imagehandler.Handler
+	orgHandler        *orghandler.Handler
+	sessionHandler    *sessionhandler.Handler
+	settingHandler    *settinghandler.Handler
+	supportHandler    *supporthandler.Handler
+	syncHandler       *synchandler.Handler
+	systemHandler     *systemhandler.Handler
+	userHandler       *userhandler.Handler
 }
 
 func NewHandlerRegistry(
 	baseHandler *handler.BaseHandler,
 	authHandler *authhandler.Handler,
 	auditLogHandler *auditloghandler.Handler,
+	collectionHandler *collectionhandler.Handler,
 	devHelperHandler *devhelperhandler.Handler,
 	identityHandler *identityhandler.Handler,
 	imageHandler *imagehandler.Handler,
@@ -55,19 +58,20 @@ func NewHandlerRegistry(
 	userHandler *userhandler.Handler,
 ) *HandlerRegistry {
 	return &HandlerRegistry{
-		baseHandler:      baseHandler,
-		authHandler:      authHandler,
-		auditLogHandler:  auditLogHandler,
-		devHelperHandler: devHelperHandler,
-		identityHandler:  identityHandler,
-		imageHandler:     imageHandler,
-		orgHandler:       orgHandler,
-		sessionHandler:   sessionHandler,
-		settingHandler:   settingHandler,
-		supportHandler:   supportHandler,
-		syncHandler:      syncHandler,
-		systemHandler:    systemHandler,
-		userHandler:      userHandler,
+		baseHandler:       baseHandler,
+		authHandler:       authHandler,
+		auditLogHandler:   auditLogHandler,
+		collectionHandler: collectionHandler,
+		devHelperHandler:  devHelperHandler,
+		identityHandler:   identityHandler,
+		imageHandler:      imageHandler,
+		orgHandler:        orgHandler,
+		sessionHandler:    sessionHandler,
+		settingHandler:    settingHandler,
+		supportHandler:    supportHandler,
+		syncHandler:       syncHandler,
+		systemHandler:     systemHandler,
+		userHandler:       userHandler,
 	}
 }
 
@@ -116,6 +120,7 @@ func (s *HTTPServer) registerAPIRoutes(apiGroup *gin.RouterGroup) {
 	s.registerSyncRoutes(apiGroup)
 	s.registerOrgRoutes(apiGroup)
 	s.registerIdentityRoutes(apiGroup)
+	s.registerCollectionRoutes(apiGroup)
 }
 
 // registerWebApp serves the web app at the root: its files as they are, with no directory listing, and its index.html

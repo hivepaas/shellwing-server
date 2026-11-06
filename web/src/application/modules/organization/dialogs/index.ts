@@ -4,3 +4,6 @@ export * from "./remove-org-member";
 export * from "./edit-org-group";
 export * from "./edit-org-group-members";
 export * from "./delete-org-group";
+export * from "./edit-collection";
+export * from "./edit-collection-access";
+export * from "./delete-collection";

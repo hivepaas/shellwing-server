@@ -43,6 +43,40 @@ const (
 	SpaceTypeCollection SpaceType = "collection"
 )
 
+// CollectionPermission is what a grant lets a person do in a collection. Each takes in the ones before it.
+type CollectionPermission string
+
+const (
+	// CollectionPermissionConnect sees the hosts and connects.
+	CollectionPermissionConnect CollectionPermission = "connect"
+	// CollectionPermissionEdit adds and changes records.
+	CollectionPermissionEdit CollectionPermission = "edit"
+	// CollectionPermissionManage grants others, and replaces the key.
+	CollectionPermissionManage CollectionPermission = "manage"
+)
+
+var AllCollectionPermissions = []CollectionPermission{
+	CollectionPermissionConnect, CollectionPermissionEdit, CollectionPermissionManage,
+}
+
+// Rank orders permissions: 0 for none, then connect, edit, manage.
+func (p CollectionPermission) Rank() int {
+	switch p {
+	case CollectionPermissionConnect:
+		return 1
+	case CollectionPermissionEdit:
+		return 2 //nolint:mnd
+	case CollectionPermissionManage:
+		return 3 //nolint:mnd
+	}
+	return 0
+}
+
+// AtLeast says whether the permission takes in the other.
+func (p CollectionPermission) AtLeast(other CollectionPermission) bool {
+	return p.Rank() >= other.Rank() && p.Rank() > 0
+}
+
 type SSHCAStatus string
 
 const (

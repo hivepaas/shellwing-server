@@ -883,6 +883,735 @@
         "tags" : [ "Organizations" ]
       }
     },
+    "/orgs/{orgID}/collections" : {
+      "get" : {
+        "description" : "Those the person may use, with what they may do and whether they hold the current key; to an admin,\nevery one. Those who manage a collection's access also see how many wait for its key, and whether it\nneeds a new one.",
+        "operationId" : "listCollections",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.ListCollectionsResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Lists the organization's collections",
+        "tags" : [ "Collections" ]
+      },
+      "post" : {
+        "description" : "For owners and admins. It has no key until an app with Manage makes one; an admin who makes it is\ngranted Manage. Its name is unique in the organization, whatever its case.",
+        "operationId" : "createCollection",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/collectiondto.CollectionReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.CollectionDataResp"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Conflict"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Makes a collection in the organization",
+        "tags" : [ "Collections" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/orgs/{orgID}/collections/{collectionID}" : {
+      "delete" : {
+        "description" : "For owners and admins. Nobody syncs it from then on; its files go after the store's trash delay.",
+        "operationId" : "deleteCollection",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "collection ID",
+          "in" : "path",
+          "name" : "collectionID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.DeleteCollectionResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Deletes a collection",
+        "tags" : [ "Collections" ]
+      },
+      "get" : {
+        "description" : "To those who manage its access, also its grants and everybody with access: what they may do, whether\nthey hold the key, and their identity, whose fingerprint is compared before giving it to them.",
+        "operationId" : "getCollection",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "collection ID",
+          "in" : "path",
+          "name" : "collectionID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.GetCollectionResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Returns a collection",
+        "tags" : [ "Collections" ]
+      },
+      "put" : {
+        "description" : "For those who manage its access.",
+        "operationId" : "updateCollection",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "collection ID",
+          "in" : "path",
+          "name" : "collectionID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/collectiondto.CollectionReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.CollectionDataResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Conflict"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Changes a collection's name and description",
+        "tags" : [ "Collections" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/orgs/{orgID}/collections/{collectionID}/grants" : {
+      "put" : {
+        "description" : "These grants, and no others: each to a member who is not removed or to a group, Connect, Edit or\nManage. For those who manage its access. People newly granted wait for the key until an app holding\nit gives it to them; people who lose access make the collection need a new key.",
+        "operationId" : "setCollectionGrants",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "collection ID",
+          "in" : "path",
+          "name" : "collectionID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/collectiondto.SetGrantsReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.SetGrantsResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Sets a collection's grants",
+        "tags" : [ "Collections" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/orgs/{orgID}/collections/{collectionID}/keys" : {
+      "get" : {
+        "description" : "The current key version, and the person's wraps of each version, newest first, with who wrapped\neach: their app checks the signature and opens it. Each fetch is in the audit log.",
+        "operationId" : "getCollectionKeys",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "collection ID",
+          "in" : "path",
+          "name" : "collectionID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.GetKeysResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Returns the person's wraps of a collection's keys",
+        "tags" : [ "Collections" ]
+      },
+      "post" : {
+        "description" : "Version current + 1, made by an app with Manage: the first, or one replacing the current, which that\napp holds. Wrapped for the caller and every owner with an identity (ERR_COLLECTION_WRAPS_MISSING),\nand for anybody else with access the app chooses; the others wait for it. Another app making one\nfirst gives ERR_COLLECTION_KEY_VERSION.",
+        "operationId" : "createCollectionKey",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "collection ID",
+          "in" : "path",
+          "name" : "collectionID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/collectiondto.WrapsReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.WrapsResp"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Conflict"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Gives a collection a new key",
+        "tags" : [ "Collections" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
+    "/orgs/{orgID}/collections/{collectionID}/wraps" : {
+      "post" : {
+        "description" : "Wrapped by the app of somebody who manages the collection's access and holds the key, once they\ncompared each person's fingerprint. Each wrap is checked: signed by the caller's identity, for the\nperson's, who has access and does not hold the key yet (ERR_COLLECTION_WRAP_INVALID).",
+        "operationId" : "addCollectionWraps",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "collection ID",
+          "in" : "path",
+          "name" : "collectionID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/collectiondto.WrapsReq"
+              }
+            }
+          },
+          "description" : "request data",
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.WrapsResp"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "409" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Conflict"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Gives a collection's current key to people waiting for it",
+        "tags" : [ "Collections" ],
+        "x-codegen-request-body-name" : "body"
+      }
+    },
     "/orgs/{orgID}/groups" : {
       "get" : {
         "description" : "With their members and the SSH accounts each grants its members, by name. For admins.",
@@ -6754,14 +7483,19 @@
         "x-enum-varnames" : [ "AuditLogSourceAPIGet", "AuditLogSourceAPICreate", "AuditLogSourceAPIUpdate", "AuditLogSourceAPIDelete", "AuditLogSourceAPIAction" ]
       },
       "base.AuditLogType" : {
-        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout", "license-update", "ssh-ca-update", "ssh-cert-issue", "org-member-update", "org-group-update", "user-identity-update" ],
+        "enum" : [ "secret-reveal", "setting-create", "setting-update", "setting-status-update", "setting-delete", "task-cancel", "user-create", "user-update", "user-delete", "user-login", "user-logout", "license-update", "ssh-ca-update", "ssh-cert-issue", "org-member-update", "org-group-update", "user-identity-update", "collection-update", "collection-key-fetch" ],
         "type" : "string",
-        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout", "AuditLogTypeLicenseUpdate", "AuditLogTypeSSHCAUpdate", "AuditLogTypeSSHCertIssue", "AuditLogTypeOrgMemberUpdate", "AuditLogTypeOrgGroupUpdate", "AuditLogTypeUserIdentityUpdate" ]
+        "x-enum-varnames" : [ "AuditLogTypeSecretReveal", "AuditLogTypeSettingCreate", "AuditLogTypeSettingUpdate", "AuditLogTypeSettingStatusUpdate", "AuditLogTypeSettingDelete", "AuditLogTypeTaskCancel", "AuditLogTypeUserCreate", "AuditLogTypeUserUpdate", "AuditLogTypeUserDelete", "AuditLogTypeUserLogin", "AuditLogTypeUserLogout", "AuditLogTypeLicenseUpdate", "AuditLogTypeSSHCAUpdate", "AuditLogTypeSSHCertIssue", "AuditLogTypeOrgMemberUpdate", "AuditLogTypeOrgGroupUpdate", "AuditLogTypeUserIdentityUpdate", "AuditLogTypeCollectionUpdate", "AuditLogTypeCollectionKeyFetch" ]
       },
       "base.CloudStorageKind" : {
         "enum" : [ "aws-s3" ],
         "type" : "string",
         "x-enum-varnames" : [ "CloudStorageKindS3" ]
+      },
+      "base.CollectionPermission" : {
+        "enum" : [ "connect", "edit", "manage" ],
+        "type" : "string",
+        "x-enum-varnames" : [ "CollectionPermissionConnect", "CollectionPermissionEdit", "CollectionPermissionManage" ]
       },
       "base.EmailKind" : {
         "enum" : [ "smtp", "http" ],
@@ -6807,9 +7541,9 @@
         "x-enum-varnames" : [ "ResourceCapSecretReveal" ]
       },
       "base.ResourceType" : {
-        "enum" : [ "audit-log", "capability", "cloud-storage", "email", "im-service", "key-auth", "license", "ssh-ca", "ssh-certificate", "org-member", "org-group", "user-identity", "organization", "module", "notification", "oauth", "setting", "sys-error", "task", "user" ],
+        "enum" : [ "audit-log", "capability", "cloud-storage", "email", "im-service", "key-auth", "license", "ssh-ca", "ssh-certificate", "org-member", "org-group", "user-identity", "collection", "organization", "module", "notification", "oauth", "setting", "sys-error", "task", "user" ],
         "type" : "string",
-        "x-enum-varnames" : [ "ResourceTypeAuditLog", "ResourceTypeCapability", "ResourceTypeCloudStorage", "ResourceTypeEmail", "ResourceTypeIMService", "ResourceTypeKeyAuth", "ResourceTypeLicense", "ResourceTypeSSHCA", "ResourceTypeSSHCert", "ResourceTypeOrgMember", "ResourceTypeOrgGroup", "ResourceTypeUserIdentity", "ResourceTypeOrganization", "ResourceTypeModule", "ResourceTypeNotification", "ResourceTypeOAuth", "ResourceTypeSetting", "ResourceTypeSysError", "ResourceTypeTask", "ResourceTypeUser" ]
+        "x-enum-varnames" : [ "ResourceTypeAuditLog", "ResourceTypeCapability", "ResourceTypeCloudStorage", "ResourceTypeEmail", "ResourceTypeIMService", "ResourceTypeKeyAuth", "ResourceTypeLicense", "ResourceTypeSSHCA", "ResourceTypeSSHCert", "ResourceTypeOrgMember", "ResourceTypeOrgGroup", "ResourceTypeUserIdentity", "ResourceTypeCollection", "ResourceTypeOrganization", "ResourceTypeModule", "ResourceTypeNotification", "ResourceTypeOAuth", "ResourceTypeSetting", "ResourceTypeSysError", "ResourceTypeTask", "ResourceTypeUser" ]
       },
       "base.SSHCAStatus" : {
         "enum" : [ "active", "retired" ],
@@ -7203,6 +7937,404 @@
           }
         },
         "required" : [ "id", "type" ],
+        "type" : "object"
+      },
+      "collectiondto.CollectionDataResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/collectiondto.CollectionResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "collectiondto.CollectionDetailResp" : {
+        "properties" : {
+          "collection" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/collectiondto.CollectionResp"
+            } ],
+            "nullable" : true
+          },
+          "grants" : {
+            "items" : {
+              "$ref" : "#/components/schemas/collectiondto.GrantResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "members" : {
+            "items" : {
+              "$ref" : "#/components/schemas/collectiondto.MemberResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "collection", "grants", "members" ],
+        "type" : "object"
+      },
+      "collectiondto.CollectionReq" : {
+        "properties" : {
+          "description" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "description", "name" ],
+        "type" : "object"
+      },
+      "collectiondto.CollectionResp" : {
+        "properties" : {
+          "description" : {
+            "type" : "string"
+          },
+          "hasKey" : {
+            "type" : "boolean"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "keyVersion" : {
+            "description" : "KeyVersion is the version of the key its records are sealed with now: 0 until an app makes the first.",
+            "type" : "integer"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "needsNewKey" : {
+            "description" : "NeedsNewKey says somebody holding the current key has lost access: an app with Manage replaces it.",
+            "type" : "boolean"
+          },
+          "permission" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/base.CollectionPermission"
+            } ],
+            "description" : "Permission is the person's: connect, edit or manage, or empty for an admin with no grant.",
+            "type" : "object"
+          },
+          "waiting" : {
+            "description" : "Waiting counts the people with access who are not given the current key yet: none before the first.",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "description", "hasKey", "id", "keyVersion", "name", "needsNewKey", "permission", "waiting" ],
+        "type" : "object"
+      },
+      "collectiondto.DeleteCollectionResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
+        "type" : "object"
+      },
+      "collectiondto.GetCollectionResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/collectiondto.CollectionDetailResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "collectiondto.GetKeysResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/collectiondto.KeysResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "collectiondto.GrantReq" : {
+        "properties" : {
+          "groupId" : {
+            "type" : "string"
+          },
+          "permission" : {
+            "$ref" : "#/components/schemas/base.CollectionPermission"
+          },
+          "userId" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "groupId", "permission", "userId" ],
+        "type" : "object"
+      },
+      "collectiondto.GrantResp" : {
+        "properties" : {
+          "fullName" : {
+            "type" : "string"
+          },
+          "groupId" : {
+            "type" : "string"
+          },
+          "groupName" : {
+            "type" : "string"
+          },
+          "permission" : {
+            "$ref" : "#/components/schemas/base.CollectionPermission"
+          },
+          "userId" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "permission" ],
+        "type" : "object"
+      },
+      "collectiondto.KeysResp" : {
+        "properties" : {
+          "keyVersion" : {
+            "type" : "integer"
+          },
+          "wraps" : {
+            "items" : {
+              "$ref" : "#/components/schemas/collectiondto.WrapResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "keyVersion", "wraps" ],
+        "type" : "object"
+      },
+      "collectiondto.ListCollectionsResp" : {
+        "properties" : {
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/collectiondto.CollectionResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "collectiondto.MemberResp" : {
+        "properties" : {
+          "fullName" : {
+            "type" : "string"
+          },
+          "hasKey" : {
+            "type" : "boolean"
+          },
+          "identity" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/identitydto.IdentityResp"
+            } ],
+            "description" : "Identity is what the key is wrapped for, and the fingerprint to compare first. None until their app publishes\none: nobody can give them the key before.",
+            "nullable" : true,
+            "type" : "object"
+          },
+          "permission" : {
+            "$ref" : "#/components/schemas/base.CollectionPermission"
+          },
+          "role" : {
+            "$ref" : "#/components/schemas/base.OrgRole"
+          },
+          "served" : {
+            "description" : "Served is false for a suspended member or a disabled account: they keep their access, and get nothing.",
+            "type" : "boolean"
+          },
+          "userId" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "fullName", "hasKey", "identity", "permission", "role", "served", "userId", "username" ],
+        "type" : "object"
+      },
+      "collectiondto.SetGrantsReq" : {
+        "properties" : {
+          "grants" : {
+            "items" : {
+              "$ref" : "#/components/schemas/collectiondto.GrantReq"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "grants" ],
+        "type" : "object"
+      },
+      "collectiondto.SetGrantsResp" : {
+        "properties" : {
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/collectiondto.GrantResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
+      "collectiondto.WrapReq" : {
+        "properties" : {
+          "commitment" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "ephemeralPublic" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "recipientX25519" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "sealedKey" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "signature" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "userId" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "commitment", "ephemeralPublic", "recipientX25519", "sealedKey", "signature", "userId" ],
+        "type" : "object"
+      },
+      "collectiondto.WrapResp" : {
+        "properties" : {
+          "commitment" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "ephemeralPublic" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "recipientX25519" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "sealedKey" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "signature" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "version" : {
+            "type" : "integer"
+          },
+          "wrappedBy" : {
+            "type" : "string"
+          },
+          "wrapperEd25519" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          },
+          "wrapperFingerprint" : {
+            "type" : "string"
+          },
+          "wrapperUsername" : {
+            "type" : "string"
+          },
+          "wrapperX25519" : {
+            "format" : "byte",
+            "pattern" : "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "type" : "string"
+          }
+        },
+        "required" : [ "commitment", "ephemeralPublic", "recipientX25519", "sealedKey", "signature", "version", "wrappedBy", "wrapperEd25519", "wrapperFingerprint", "wrapperUsername", "wrapperX25519" ],
+        "type" : "object"
+      },
+      "collectiondto.WrapsReq" : {
+        "properties" : {
+          "version" : {
+            "type" : "integer"
+          },
+          "wraps" : {
+            "items" : {
+              "$ref" : "#/components/schemas/collectiondto.WrapReq"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "version", "wraps" ],
+        "type" : "object"
+      },
+      "collectiondto.WrapsResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
         "type" : "object"
       },
       "identitydto.GetIdentityResp" : {
@@ -10413,6 +11545,18 @@
           },
           "id" : {
             "type" : "string"
+          },
+          "keyVersion" : {
+            "type" : "integer"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "orgId" : {
+            "type" : "string"
+          },
+          "permission" : {
+            "$ref" : "#/components/schemas/base.CollectionPermission"
           },
           "recordCount" : {
             "type" : "integer"

@@ -1,6 +1,8 @@
 import { createContext } from "react";
 
 import {
+    CollectionsApi,
+    CollectionsApiValidator,
     OrgGroupsApi,
     OrgGroupsApiValidator,
     OrgMembersApi,
@@ -19,6 +21,7 @@ function createApi() {
      */
     const orgMembersValidator = new OrgMembersApiValidator();
     const orgGroupsValidator = new OrgGroupsApiValidator();
+    const collectionsValidator = new CollectionsApiValidator();
     const sshCaValidator = new SshCaApiValidator();
     const sshSettingsValidator = new SshSettingsApiValidator();
     const sshPrincipalsValidator = new SshPrincipalsApiValidator();
@@ -27,6 +30,7 @@ function createApi() {
         organization: {
             members: new OrgMembersApi(orgMembersValidator),
             groups: new OrgGroupsApi(orgGroupsValidator),
+            collections: new CollectionsApi(collectionsValidator),
             ssh: {
                 cas: new SshCaApi(sshCaValidator),
                 settings: new SshSettingsApi(sshSettingsValidator),

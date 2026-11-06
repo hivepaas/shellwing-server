@@ -1,6 +1,6 @@
 -- +migrate Up
 -- A set of records that sync together and share one key. A personal space belongs to its user and to no organization,
--- which never sees it; a collection belongs to an organization. Names are not here: they are the clients', encrypted.
+-- which never sees it; a collection belongs to an organization, and its name, in the clear, is in collections.
 CREATE TABLE IF NOT EXISTS spaces
 (
     id            VARCHAR(100) PRIMARY KEY,

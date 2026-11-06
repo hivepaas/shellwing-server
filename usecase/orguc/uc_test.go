@@ -74,7 +74,7 @@ func newEnv(t *testing.T) *env {
 	t.Cleanup(func() { _ = admin.Close() })
 	stmts := []string{"CREATE SCHEMA " + schema}
 	for _, table := range []string{"organizations", "org_members", "ssh_cas", "users", "org_groups",
-		"org_group_members"} {
+		"org_group_members", "collection_grants"} {
 		stmts = append(stmts, "CREATE TABLE "+schema+"."+table+" (LIKE public."+table+" INCLUDING ALL)")
 	}
 	for _, stmt := range stmts {
@@ -92,7 +92,7 @@ func newEnv(t *testing.T) *env {
 
 	audit := &fakeAudit{}
 	e := &env{uc: New(db, repository.NewOrganizationRepo(), repository.NewSSHCARepo(), repository.NewOrgGroupRepo(),
-		audit), db: db, audit: audit}
+		repository.NewCollectionRepo(), audit), db: db, audit: audit}
 	e.org = e.addOrg(t)
 	return e
 }
@@ -491,7 +491,14 @@ func TestARemovedMemberLosesWhatTheyWereGranted(t *testing.T) {
 	require.NoError(t, err)
 
 	// Removed, it is gone; brought back, they are a member with nothing.
+	_, err = e.db.NewInsert().Model(&entity.CollectionGrant{
+		ID: "g1", CollectionID: "c1", OrgID: e.org, UserID: person.UserID(), Permission: base.CollectionPermissionEdit,
+	}).Exec(ctx)
+	require.NoError(t, err)
 	require.NoError(t, status(base.OrgMemberStatusRemoved))
+	grants, err := e.db.NewSelect().Model((*entity.CollectionGrant)(nil)).Count(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, grants, "their collections' grants")
 	_, err = e.uc.GetSSHPrincipals(ctx, owner, e.org, person.UserID())
 	require.ErrorIs(t, err, hperrors.ErrNotFound)
 	_, err = e.uc.SetSSHPrincipals(ctx, owner, e.org, person.UserID(),
