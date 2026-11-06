@@ -51,3 +51,23 @@ var (
 	// sign.
 	ErrIdentityInvalid = NewErr(ErrArgumentInvalid, "ERR_IDENTITY_INVALID")
 )
+
+// Errors for collections and their keys.
+var (
+	// ErrIdentityMissing is a person with no identity published: their app makes one when it syncs with this server.
+	ErrIdentityMissing = NewErr(ErrPreconditionFailed, "ERR_IDENTITY_MISSING")
+	// ErrCollectionReadOnly refuses a write from somebody who may only connect.
+	ErrCollectionReadOnly = NewErr(ErrForbidden, "ERR_COLLECTION_READ_ONLY")
+	// ErrCollectionKeyVersion is a key of a version other than the one expected: another app made one first. The app
+	// fetches the collection again.
+	ErrCollectionKeyVersion = NewErr(ErrConflict, "ERR_COLLECTION_KEY_VERSION")
+	// ErrCollectionNoKey is a person who does not hold the collection's current key, doing what needs it.
+	ErrCollectionNoKey = NewErr(ErrPreconditionFailed, "ERR_COLLECTION_NO_KEY")
+	// ErrCollectionWrapInvalid is a wrap not signed by the caller's identity, of the wrong size, for somebody without
+	// access, for another key than their identity's, or for somebody who has it already. Its param Name is whom it is
+	// for.
+	ErrCollectionWrapInvalid = NewErr(ErrArgumentInvalid, "ERR_COLLECTION_WRAP_INVALID")
+	// ErrCollectionWrapsMissing is a new key not wrapped for the caller and every owner with an identity. Its param
+	// Name is whom it lacks.
+	ErrCollectionWrapsMissing = NewErr(ErrPreconditionFailed, "ERR_COLLECTION_WRAPS_MISSING")
+)

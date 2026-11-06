@@ -21,6 +21,7 @@ const (
 	ResourceTypeOrgMember    ResourceType = "org-member"
 	ResourceTypeOrgGroup     ResourceType = "org-group"
 	ResourceTypeUserIdentity ResourceType = "user-identity"
+	ResourceTypeCollection   ResourceType = "collection"
 	ResourceTypeOrganization ResourceType = "organization"
 	ResourceTypeModule       ResourceType = "module"
 	ResourceTypeNotification ResourceType = "notification"

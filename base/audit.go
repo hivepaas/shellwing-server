@@ -119,6 +119,11 @@ const (
 	// AuditLogTypeUserIdentityUpdate records a person publishing their identity, or another in its place, with its
 	// fingerprint.
 	AuditLogTypeUserIdentityUpdate AuditLogType = "user-identity-update"
+	// AuditLogTypeCollectionUpdate records a collection made, changed or deleted, its grants set, a key made for it or
+	// wrapped for somebody, with section naming which.
+	AuditLogTypeCollectionUpdate AuditLogType = "collection-update"
+	// AuditLogTypeCollectionKeyFetch records a device fetching the wraps of a collection's key: what opens it.
+	AuditLogTypeCollectionKeyFetch AuditLogType = "collection-key-fetch"
 )
 
 var AllAuditLogTypes = []AuditLogType{
@@ -128,6 +133,8 @@ var AllAuditLogTypes = []AuditLogType{
 	AuditLogTypeOrgMemberUpdate,
 	AuditLogTypeOrgGroupUpdate,
 	AuditLogTypeUserIdentityUpdate,
+	AuditLogTypeCollectionUpdate,
+	AuditLogTypeCollectionKeyFetch,
 	AuditLogTypeSecretReveal,
 	AuditLogTypeUserCreate,
 	AuditLogTypeUserUpdate,

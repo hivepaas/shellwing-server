@@ -35,16 +35,19 @@ const (
 )
 
 type UC struct {
-	db           *database.DB
-	orgRepo      repository.OrganizationRepo
-	sshCARepo    repository.SSHCARepo
-	groupRepo    repository.OrgGroupRepo
-	auditService auditservice.Service
+	db             *database.DB
+	orgRepo        repository.OrganizationRepo
+	sshCARepo      repository.SSHCARepo
+	groupRepo      repository.OrgGroupRepo
+	collectionRepo repository.CollectionRepo
+	auditService   auditservice.Service
 }
 
 func New(db *database.DB, orgRepo repository.OrganizationRepo, sshCARepo repository.SSHCARepo,
-	groupRepo repository.OrgGroupRepo, auditService auditservice.Service) *UC {
-	return &UC{db: db, orgRepo: orgRepo, sshCARepo: sshCARepo, groupRepo: groupRepo, auditService: auditService}
+	groupRepo repository.OrgGroupRepo, collectionRepo repository.CollectionRepo,
+	auditService auditservice.Service) *UC {
+	return &UC{db: db, orgRepo: orgRepo, sshCARepo: sshCARepo, groupRepo: groupRepo, collectionRepo: collectionRepo,
+		auditService: auditService}
 }
 
 // memberOf is the person's membership of an active organization. An organization they are not an active member of is
@@ -308,7 +311,7 @@ func (uc *UC) UpdateMemberRole(ctx context.Context, auth *basedto.Auth, orgID, u
 
 // UpdateMemberStatus suspends a member, removes them, or makes them active again. Owners and admins do it to members
 // and admins, and only an owner to an owner; anybody may remove themselves, which is leaving. The last active owner
-// stays one. A removed member loses their role and accounts: brought back, they are a member with none.
+// stays one. A removed member loses their role, accounts, groups and grants: brought back, they are a member with none.
 func (uc *UC) UpdateMemberStatus(ctx context.Context, auth *basedto.Auth, orgID, userID string,
 	req *orgdto.UpdateMemberStatusReq) (*orgdto.UpdateMemberStatusResp, error) {
 	err := transaction.Execute(ctx, uc.db, func(tx database.Tx) error {
@@ -336,10 +339,8 @@ func (uc *UC) UpdateMemberStatus(ctx context.Context, auth *basedto.Auth, orgID,
 		from := member.Status
 		member.Status = req.Status
 		if req.Status == base.OrgMemberStatusRemoved {
-			member.Role = base.OrgRoleMember
-			member.SSHPrincipals = []string{}
-			if err = uc.groupRepo.RemoveFromAll(ctx, tx, orgID, userID); err != nil {
-				return hperrors.Wrap(err)
+			if err = uc.strip(ctx, tx, member); err != nil {
+				return err
 			}
 		}
 		if err = uc.orgRepo.UpdateMember(ctx, tx, member); err != nil {
@@ -352,6 +353,19 @@ func (uc *UC) UpdateMemberStatus(ctx context.Context, auth *basedto.Auth, orgID,
 		return nil, hperrors.Wrap(err)
 	}
 	return &orgdto.UpdateMemberStatusResp{}, nil
+}
+
+// strip takes from a member being removed their role, accounts, groups and grants.
+func (uc *UC) strip(ctx context.Context, tx database.Tx, member *entity.OrgMember) error {
+	member.Role = base.OrgRoleMember
+	member.SSHPrincipals = []string{}
+	if err := uc.groupRepo.RemoveFromAll(ctx, tx, member.OrgID, member.UserID); err != nil {
+		return hperrors.Wrap(err)
+	}
+	if err := uc.collectionRepo.RemoveUserGrants(ctx, tx, member.OrgID, member.UserID); err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
 }
 
 // lockMember returns the person acting and the member they act on, with the organization locked: two changes at once

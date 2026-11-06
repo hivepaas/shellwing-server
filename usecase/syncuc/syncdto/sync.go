@@ -1,11 +1,13 @@
 package syncdto
 
 import (
+	"github.com/hivepaas/shellwing-server/base"
 	"github.com/hivepaas/shellwing-server/basedto"
 	"github.com/hivepaas/shellwing-server/entity"
 )
 
-// SpaceResp is a space and its totals.
+// SpaceResp is a space and its totals. A collection also has its organization, name, key version and what the person
+// may do in it.
 type SpaceResp struct {
 	ID          string `json:"id"`
 	Type        string `json:"type"`
@@ -13,6 +15,11 @@ type SpaceResp struct {
 	BytesUsed   int64  `json:"bytesUsed"`
 	RecordCount int    `json:"recordCount"`
 	HostCount   int    `json:"hostCount"`
+
+	OrgID      string                    `json:"orgId,omitempty"`
+	Name       string                    `json:"name,omitempty"`
+	KeyVersion int                       `json:"keyVersion,omitempty"`
+	Permission base.CollectionPermission `json:"permission,omitempty"`
 }
 
 func TransformSpace(space *entity.Space, totals *entity.SyncSpace) *SpaceResp {
@@ -24,6 +31,16 @@ func TransformSpace(space *entity.Space, totals *entity.SyncSpace) *SpaceResp {
 		RecordCount: totals.RecordCount,
 		HostCount:   totals.HostCount,
 	}
+}
+
+func TransformCollection(collection *entity.Collection, permission base.CollectionPermission,
+	totals *entity.SyncSpace) *SpaceResp {
+	resp := TransformSpace(&entity.Space{ID: collection.ID, Type: base.SpaceTypeCollection}, totals)
+	resp.OrgID = collection.OrgID
+	resp.Name = collection.Name
+	resp.KeyVersion = collection.KeyVersion
+	resp.Permission = permission
+	return resp
 }
 
 type ListSpacesResp struct {

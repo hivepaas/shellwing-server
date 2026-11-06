@@ -17,6 +17,9 @@ type SpaceRepo interface {
 	// InsertIfAbsent makes the space unless the user has their personal space already: two devices asking together
 	// make one.
 	InsertIfAbsent(ctx context.Context, db database.IDB, space *entity.Space) error
+	// Insert makes a collection's space.
+	Insert(ctx context.Context, db database.IDB, space *entity.Space) error
+	Delete(ctx context.Context, db database.IDB, id string) error
 }
 
 type spaceRepo struct {
@@ -58,6 +61,20 @@ func (repo *spaceRepo) InsertIfAbsent(ctx context.Context, db database.IDB, spac
 		On("CONFLICT (owner_user_id) WHERE type = 'personal' AND deleted_at IS NULL DO NOTHING").
 		Exec(ctx)
 	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *spaceRepo) Insert(ctx context.Context, db database.IDB, space *entity.Space) error {
+	if _, err := db.NewInsert().Model(space).Exec(ctx); err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *spaceRepo) Delete(ctx context.Context, db database.IDB, id string) error {
+	if _, err := db.NewDelete().Model((*entity.Space)(nil)).Where("id = ?", id).Exec(ctx); err != nil {
 		return hperrors.Wrap(err)
 	}
 	return nil

@@ -58,6 +58,7 @@ func newUC(t *testing.T) (*UC, *database.DB, *fakeAudit) {
 		"CREATE SCHEMA " + schema,
 		"CREATE TABLE " + schema + ".users (LIKE public.users INCLUDING ALL)",
 		"CREATE TABLE " + schema + ".user_identities (LIKE public.user_identities INCLUDING ALL)",
+		"CREATE TABLE " + schema + ".collection_key_wraps (LIKE public.collection_key_wraps INCLUDING ALL)",
 	} {
 		_, err = admin.ExecContext(ctx, stmt)
 		require.NoError(t, err)
@@ -70,7 +71,7 @@ func newUC(t *testing.T) (*UC, *database.DB, *fakeAudit) {
 	t.Cleanup(func() { _ = bunDB.Close() })
 	db := &database.DB{DB: bunDB}
 	audit := &fakeAudit{}
-	return New(db, repository.NewUserIdentityRepo(), audit), db, audit
+	return New(db, repository.NewUserIdentityRepo(), repository.NewCollectionRepo(), audit), db, audit
 }
 
 func person(t *testing.T, db *database.DB) *basedto.Auth {
@@ -113,15 +114,32 @@ func TestAPersonPublishesTheirIdentity(t *testing.T) {
 	assert.Equal(t, first.X25519Public, got.Data.X25519Public)
 	require.Len(t, audit.entries, 1)
 
-	// The same again changes nothing; another takes its place, with the one before in the log.
+	// A collection's key wrapped for the first.
+	_, err = db.NewInsert().Model(&entity.CollectionKeyWrap{
+		CollectionID: "c1", UserID: me.UserID(), KeyVersion: 1, RecipientX25519: first.X25519Public,
+		EphemeralPublic: []byte{1}, SealedKey: []byte{1}, Commitment: []byte{1}, WrappedBy: me.UserID(),
+		WrapperX25519: []byte{1}, WrapperEd25519: []byte{1}, Signature: []byte{1},
+	}).Exec(ctx)
+	require.NoError(t, err)
+	wraps := func() int {
+		n, err := db.NewSelect().Model((*entity.CollectionKeyWrap)(nil)).Where("user_id = ?", me.UserID()).Count(ctx)
+		require.NoError(t, err)
+		return int(n)
+	}
+
+	// The same again changes nothing; another takes its place, with the one before in the log, and the keys wrapped
+	// for the one before go.
 	_, err = uc.PutMine(ctx, me, first)
 	require.NoError(t, err)
 	require.Len(t, audit.entries, 1)
+	assert.Equal(t, 1, wraps())
 	second := newIdentity(t)
 	_, err = uc.PutMine(ctx, me, second)
 	require.NoError(t, err)
 	require.Len(t, audit.entries, 2)
 	assert.Contains(t, audit.entries[1].Detail, put.Data.Fingerprint)
+	assert.Contains(t, audit.entries[1].Detail, `"wrapsDropped":1`)
+	assert.Equal(t, 0, wraps())
 	got, err = uc.GetMine(ctx, me)
 	require.NoError(t, err)
 	assert.Equal(t, second.Ed25519Public, got.Data.Ed25519Public)

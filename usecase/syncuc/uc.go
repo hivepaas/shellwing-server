@@ -7,6 +7,8 @@ import (
 	"github.com/hivepaas/shellwing-server/basedto"
 	"github.com/hivepaas/shellwing-server/entity"
 	"github.com/hivepaas/shellwing-server/hperrors"
+	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/repository"
 	"github.com/hivepaas/shellwing-server/service/syncservice"
 	"github.com/hivepaas/shellwing-server/usecase/syncuc/syncdto"
 )
@@ -17,27 +19,72 @@ const (
 )
 
 type UC struct {
-	syncService syncservice.Service
+	db             *database.DB
+	syncService    syncservice.Service
+	orgRepo        repository.OrganizationRepo
+	collectionRepo repository.CollectionRepo
 }
 
-func New(syncService syncservice.Service) *UC {
-	return &UC{syncService: syncService}
+func New(db *database.DB, syncService syncservice.Service, orgRepo repository.OrganizationRepo,
+	collectionRepo repository.CollectionRepo) *UC {
+	return &UC{db: db, syncService: syncService, orgRepo: orgRepo, collectionRepo: collectionRepo}
 }
 
-// CheckAccess lets a person reach a space of theirs. Any other space is simply not found: saying more would tell a
-// caller which ids exist. Collections come with the permissions that govern them.
+// CheckAccess lets a person read a space: their personal one, or a collection served to them.
 func (uc *UC) CheckAccess(ctx context.Context, auth *basedto.Auth, spaceID string) error {
+	return uc.checkAccess(ctx, auth, spaceID, false)
+}
+
+// checkAccess lets a person reach a space of theirs, or a collection they are an active member with a grant of: to
+// write, with Edit or Manage. Any other space is simply not found: saying more would tell a caller which ids exist.
+func (uc *UC) checkAccess(ctx context.Context, auth *basedto.Auth, spaceID string, write bool) error {
 	space, err := uc.syncService.GetSpace(ctx, spaceID)
 	if err != nil {
 		return hperrors.Wrap(err)
 	}
-	if space.Type != base.SpaceTypePersonal || space.OwnerUserID != auth.UserID() {
-		return hperrors.NewNotFound("Space")
+	switch space.Type {
+	case base.SpaceTypePersonal:
+		if space.OwnerUserID == auth.UserID() {
+			return nil
+		}
+	case base.SpaceTypeCollection:
+		permission, err := uc.collectionPermission(ctx, auth, space)
+		if err != nil {
+			return err
+		}
+		if write && permission != "" && !permission.AtLeast(base.CollectionPermissionEdit) {
+			return hperrors.Wrap(hperrors.ErrCollectionReadOnly)
+		}
+		if permission != "" {
+			return nil
+		}
 	}
-	return nil
+	return hperrors.NewNotFound("Space")
 }
 
-// ListSpaces returns the spaces of the person: for now their personal one, made the first time they ask.
+// collectionPermission is what the person may do in the collection now: nothing unless the organization is active and
+// they are served.
+func (uc *UC) collectionPermission(ctx context.Context, auth *basedto.Auth, space *entity.Space) (
+	base.CollectionPermission, error) {
+	org, err := uc.orgRepo.GetByID(ctx, uc.db, space.OrgID)
+	if err != nil {
+		return "", hperrors.Wrap(err)
+	}
+	if org == nil || org.Status != base.OrgStatusActive {
+		return "", nil
+	}
+	entitlements, err := uc.collectionRepo.Entitlements(ctx, uc.db, space.OrgID, space.ID, auth.UserID())
+	if err != nil {
+		return "", hperrors.Wrap(err)
+	}
+	if len(entitlements) == 0 || !entitlements[0].Served() {
+		return "", nil
+	}
+	return entitlements[0].Permission, nil
+}
+
+// ListSpaces returns the spaces of the person: their personal one, made the first time they ask, then the collections
+// of each organization served to them.
 func (uc *UC) ListSpaces(ctx context.Context, auth *basedto.Auth) (*syncdto.ListSpacesResp, error) {
 	space, err := uc.syncService.EnsurePersonalSpace(ctx, auth.UserID())
 	if err != nil {
@@ -47,7 +94,50 @@ func (uc *UC) ListSpaces(ctx context.Context, auth *basedto.Auth) (*syncdto.List
 	if err != nil {
 		return nil, hperrors.Wrap(err)
 	}
-	return &syncdto.ListSpacesResp{Data: []*syncdto.SpaceResp{syncdto.TransformSpace(space, totals)}}, nil
+	data := []*syncdto.SpaceResp{syncdto.TransformSpace(space, totals)}
+	memberships, err := uc.orgRepo.ListMembershipsOfUser(ctx, uc.db, auth.UserID())
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	for _, membership := range memberships {
+		collections, err := uc.servedCollections(ctx, auth, membership.OrgID)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, collections...)
+	}
+	return &syncdto.ListSpacesResp{Data: data}, nil
+}
+
+func (uc *UC) servedCollections(ctx context.Context, auth *basedto.Auth, orgID string) ([]*syncdto.SpaceResp, error) {
+	entitlements, err := uc.collectionRepo.Entitlements(ctx, uc.db, orgID, "", auth.UserID())
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	if len(entitlements) == 0 {
+		return nil, nil
+	}
+	collections, err := uc.collectionRepo.List(ctx, uc.db, orgID)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	byID := make(map[string]*entity.Collection, len(collections))
+	for _, collection := range collections {
+		byID[collection.ID] = collection
+	}
+	var out []*syncdto.SpaceResp
+	for _, e := range entitlements {
+		collection := byID[e.CollectionID]
+		if collection == nil || !e.Served() {
+			continue
+		}
+		totals, err := uc.syncService.GetTotals(ctx, collection.ID)
+		if err != nil {
+			return nil, hperrors.Wrap(err)
+		}
+		out = append(out, syncdto.TransformCollection(collection, e.Permission, totals))
+	}
+	return out, nil
 }
 
 func (uc *UC) ListChanges(ctx context.Context, auth *basedto.Auth, spaceID string, since int64,
@@ -103,7 +193,7 @@ func (uc *UC) GetObject(ctx context.Context, auth *basedto.Auth, spaceID, name,
 
 func (uc *UC) PutObject(ctx context.Context, auth *basedto.Auth, spaceID, name string, data []byte,
 	cond syncservice.Condition) (*syncdto.PutObjectResp, error) {
-	if err := uc.CheckAccess(ctx, auth, spaceID); err != nil {
+	if err := uc.checkAccess(ctx, auth, spaceID, true); err != nil {
 		return nil, err
 	}
 	object, err := uc.syncService.Write(ctx, spaceID, name, data, cond)
@@ -115,7 +205,7 @@ func (uc *UC) PutObject(ctx context.Context, auth *basedto.Auth, spaceID, name s
 
 func (uc *UC) DeleteObject(ctx context.Context, auth *basedto.Auth, spaceID, name string,
 	cond syncservice.Condition) (*syncdto.DeleteObjectResp, error) {
-	if err := uc.CheckAccess(ctx, auth, spaceID); err != nil {
+	if err := uc.checkAccess(ctx, auth, spaceID, true); err != nil {
 		return nil, err
 	}
 	if err := uc.syncService.Remove(ctx, spaceID, name, cond); err != nil {
