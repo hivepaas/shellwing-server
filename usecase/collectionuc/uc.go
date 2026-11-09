@@ -163,12 +163,7 @@ func (s *standing) waiting() int {
 // needsNewKey says somebody holding the current key has no access any more: not suspended, which keeps it, but no
 // longer granted, no longer an owner, or removed.
 func (s *standing) needsNewKey() bool {
-	for userID := range s.holders {
-		if s.entitled[userID] == nil {
-			return true
-		}
-	}
-	return false
+	return entity.NeedsNewKey(s.entitled, s.holders)
 }
 
 // standings gathers, for each collection of the organization, who has access and who holds its key.

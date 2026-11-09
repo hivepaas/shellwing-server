@@ -479,6 +479,25 @@ func TestLosingAccessNeedsANewKeyAndSuspensionDoesNot(t *testing.T) {
 		userGrant(pauser, base.CollectionPermissionEdit))
 	assert.True(t, e.listed(t, owner, id).NeedsNewKey)
 	assert.True(t, e.listed(t, manager, id).NeedsNewKey, "a manager sees it")
+	// The app learns it from the spaces it syncs, as do those with Manage only.
+	needs := func(p *person) bool {
+		spaces, err := e.sync.ListSpaces(ctx, p.auth)
+		require.NoError(t, err)
+		for _, s := range spaces.Data {
+			if s.ID == id {
+				return s.NeedsNewKey
+			}
+		}
+		t.Fatalf("%s is not served %s", p.id(), id)
+		return false
+	}
+	assert.True(t, needs(owner))
+	assert.True(t, needs(manager))
+	// Back from suspension, the pauser has Edit: nothing to do, so not told.
+	_, err = e.db.NewUpdate().Model((*entity.OrgMember)(nil)).Set("status = ?", base.OrgMemberStatusActive).
+		Where("org_id = ?", e.org).Where("user_id = ?", pauser.id()).Exec(ctx)
+	require.NoError(t, err)
+	assert.False(t, needs(pauser))
 
 	// The manager does not hold the current key, so cannot replace it.
 	_, err = e.uc.CreateKey(ctx, manager.auth, e.org, id, wraps(2, wrap(t, manager, id, 2, manager),

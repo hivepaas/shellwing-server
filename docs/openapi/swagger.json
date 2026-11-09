@@ -11552,6 +11552,10 @@
           "name" : {
             "type" : "string"
           },
+          "needsNewKey" : {
+            "description" : "NeedsNewKey says, to those with Manage, that somebody holding the current key has lost access: their app\nreplaces it if it holds it.",
+            "type" : "boolean"
+          },
           "orgId" : {
             "type" : "string"
           },
