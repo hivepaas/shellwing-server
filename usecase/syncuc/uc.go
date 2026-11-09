@@ -125,6 +125,10 @@ func (uc *UC) servedCollections(ctx context.Context, auth *basedto.Auth, orgID s
 	for _, collection := range collections {
 		byID[collection.ID] = collection
 	}
+	stale, err := uc.needingNewKey(ctx, orgID, entitlements)
+	if err != nil {
+		return nil, err
+	}
 	var out []*syncdto.SpaceResp
 	for _, e := range entitlements {
 		collection := byID[e.CollectionID]
@@ -135,7 +139,49 @@ func (uc *UC) servedCollections(ctx context.Context, auth *basedto.Auth, orgID s
 		if err != nil {
 			return nil, hperrors.Wrap(err)
 		}
-		out = append(out, syncdto.TransformCollection(collection, e.Permission, totals))
+		resp := syncdto.TransformCollection(collection, e.Permission, totals)
+		resp.NeedsNewKey = e.Permission == base.CollectionPermissionManage && stale[collection.ID]
+		out = append(out, resp)
+	}
+	return out, nil
+}
+
+// needingNewKey gives the organization's collections whose key must be replaced, of those the person manages
+// (mine): none, without asking, if they manage none.
+func (uc *UC) needingNewKey(ctx context.Context, orgID string, mine []*entity.CollectionEntitlement) (
+	map[string]bool, error) {
+	manages := false
+	for _, e := range mine {
+		manages = manages || e.Permission == base.CollectionPermissionManage
+	}
+	if !manages {
+		return nil, nil
+	}
+	entitlements, err := uc.collectionRepo.Entitlements(ctx, uc.db, orgID, "", "")
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	holders, err := uc.collectionRepo.KeyHolders(ctx, uc.db, orgID, "")
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	entitled := map[string]map[string]*entity.CollectionEntitlement{}
+	for _, e := range entitlements {
+		if entitled[e.CollectionID] == nil {
+			entitled[e.CollectionID] = map[string]*entity.CollectionEntitlement{}
+		}
+		entitled[e.CollectionID][e.UserID] = e
+	}
+	held := map[string]map[string]bool{}
+	for _, h := range holders {
+		if held[h.CollectionID] == nil {
+			held[h.CollectionID] = map[string]bool{}
+		}
+		held[h.CollectionID][h.UserID] = true
+	}
+	out := map[string]bool{}
+	for id, holders := range held {
+		out[id] = entity.NeedsNewKey(entitled[id], holders)
 	}
 	return out, nil
 }

@@ -20,6 +20,9 @@ type SpaceResp struct {
 	Name       string                    `json:"name,omitempty"`
 	KeyVersion int                       `json:"keyVersion,omitempty"`
 	Permission base.CollectionPermission `json:"permission,omitempty"`
+	// NeedsNewKey says, to those with Manage, that somebody holding the current key has lost access: their app
+	// replaces it if it holds it.
+	NeedsNewKey bool `json:"needsNewKey,omitempty"`
 }
 
 func TransformSpace(space *entity.Space, totals *entity.SyncSpace) *SpaceResp {

@@ -91,3 +91,14 @@ type CollectionKeyHolder struct {
 	CollectionID string `bun:"collection_id"`
 	UserID       string `bun:"user_id"`
 }
+
+// NeedsNewKey says a collection's key must be replaced: somebody holding its current key (holders, by user id) has
+// no access to it any more (entitled, by user id). Being suspended keeps access, and so does not need one.
+func NeedsNewKey(entitled map[string]*CollectionEntitlement, holders map[string]bool) bool {
+	for userID := range holders {
+		if entitled[userID] == nil {
+			return true
+		}
+	}
+	return false
+}
