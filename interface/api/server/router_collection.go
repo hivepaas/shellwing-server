@@ -13,6 +13,7 @@ func (s *HTTPServer) registerCollectionRoutes(apiGroup *gin.RouterGroup) {
 	group.PUT("/:collectionID", collectionHandler.UpdateCollection)
 	group.DELETE("/:collectionID", collectionHandler.DeleteCollection)
 	group.PUT("/:collectionID/grants", collectionHandler.SetCollectionGrants)
+	group.GET("/:collectionID/grantable", collectionHandler.GetCollectionGrantable)
 	group.GET("/:collectionID/keys", collectionHandler.GetCollectionKeys)
 	group.POST("/:collectionID/keys", collectionHandler.CreateCollectionKey)
 	group.POST("/:collectionID/wraps", collectionHandler.AddCollectionWraps)

@@ -340,6 +340,21 @@ func TestGrantedPeopleWaitUntilSomebodyHoldingTheKeyGivesItThem(t *testing.T) {
 	e.grant(t, owner, id, userGrant(editor, base.CollectionPermissionEdit),
 		&collectiondto.GrantReq{GroupID: group.ID, Permission: base.CollectionPermissionConnect})
 
+	// Whom it can be granted to, for those who manage its access only.
+	grantable, err := e.uc.Grantable(ctx, owner.auth, e.org, id)
+	require.NoError(t, err)
+	var names []string
+	for _, p := range grantable.Data.People {
+		names = append(names, p.Username)
+	}
+	assert.ElementsMatch(t, []string{"olivia", "ed", "vic", "sam"}, names)
+	require.Len(t, grantable.Data.Groups, 1)
+	assert.Equal(t, "Ops", grantable.Data.Groups[0].Name)
+	_, err = e.uc.Grantable(ctx, editor.auth, e.org, id)
+	require.ErrorIs(t, err, hperrors.ErrForbidden)
+	_, err = e.uc.Grantable(ctx, stranger.auth, e.org, id)
+	require.ErrorIs(t, err, hperrors.ErrNotFound)
+
 	detail, err := e.uc.Get(ctx, owner.auth, e.org, id)
 	require.NoError(t, err)
 	assert.Equal(t, 2, detail.Data.Collection.Waiting)

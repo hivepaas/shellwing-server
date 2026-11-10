@@ -1240,6 +1240,73 @@
         "x-codegen-request-body-name" : "body"
       }
     },
+    "/orgs/{orgID}/collections/{collectionID}/grantable" : {
+      "get" : {
+        "description" : "For those who manage its access: the organization's people who are not removed, and its groups, with\nonly what choosing them needs. The app's token reaches it.",
+        "operationId" : "getCollectionGrantable",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "collection ID",
+          "in" : "path",
+          "name" : "collectionID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/collectiondto.GetGrantableResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Returns whom a collection can be granted to",
+        "tags" : [ "Collections" ]
+      }
+    },
     "/orgs/{orgID}/collections/{collectionID}/grants" : {
       "put" : {
         "description" : "These grants, and no others: each to a member who is not removed or to a group, Connect, Edit or\nManage. For those who manage its access. People newly granted wait for the key until an app holding\nit gives it to them; people who lose access make the collection need a new key.",
@@ -8062,6 +8129,24 @@
         "required" : [ "data", "meta" ],
         "type" : "object"
       },
+      "collectiondto.GetGrantableResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/collectiondto.GrantableResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
       "collectiondto.GetKeysResp" : {
         "properties" : {
           "data" : {
@@ -8117,6 +8202,60 @@
           }
         },
         "required" : [ "permission" ],
+        "type" : "object"
+      },
+      "collectiondto.GrantableGroupResp" : {
+        "properties" : {
+          "groupId" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "groupId", "name" ],
+        "type" : "object"
+      },
+      "collectiondto.GrantablePersonResp" : {
+        "properties" : {
+          "fullName" : {
+            "type" : "string"
+          },
+          "role" : {
+            "$ref" : "#/components/schemas/base.OrgRole"
+          },
+          "suspended" : {
+            "description" : "Suspended people can be granted it: they get it once active again.",
+            "type" : "boolean"
+          },
+          "userId" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "fullName", "role", "suspended", "userId", "username" ],
+        "type" : "object"
+      },
+      "collectiondto.GrantableResp" : {
+        "properties" : {
+          "groups" : {
+            "items" : {
+              "$ref" : "#/components/schemas/collectiondto.GrantableGroupResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
+          "people" : {
+            "items" : {
+              "$ref" : "#/components/schemas/collectiondto.GrantablePersonResp"
+            },
+            "nullable" : true,
+            "type" : "array"
+          }
+        },
+        "required" : [ "groups", "people" ],
         "type" : "object"
       },
       "collectiondto.KeysResp" : {
