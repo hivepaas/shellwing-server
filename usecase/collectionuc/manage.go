@@ -215,6 +215,47 @@ func (uc *UC) SetGrants(ctx context.Context, auth *basedto.Auth, orgID, collecti
 	return &collectiondto.SetGrantsResp{Data: data}, nil
 }
 
+// Grantable returns whom the collection can be granted to, for those who manage its access: in the web app, and in
+// the app, whose token reaches no other list of the organization's people.
+func (uc *UC) Grantable(ctx context.Context, auth *basedto.Auth, orgID, collectionID string) (
+	*collectiondto.GetGrantableResp, error) {
+	c, err := uc.reach(ctx, uc.db, auth, orgID, collectionID, false)
+	if err != nil {
+		return nil, err
+	}
+	if !c.managesAccess() {
+		return nil, hperrors.NewForbidden("Collection")
+	}
+	members, err := uc.orgRepo.ListMembers(ctx, uc.db, orgID)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	groups, err := uc.groupRepo.List(ctx, uc.db, orgID)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	data := &collectiondto.GrantableResp{
+		People: make([]*collectiondto.GrantablePersonResp, 0, len(members)),
+		Groups: make([]*collectiondto.GrantableGroupResp, 0, len(groups)),
+	}
+	for _, m := range members {
+		if m.Status == base.OrgMemberStatusRemoved {
+			continue
+		}
+		data.People = append(data.People, &collectiondto.GrantablePersonResp{
+			UserID:    m.UserID,
+			Username:  m.Username,
+			FullName:  m.FullName,
+			Role:      m.Role,
+			Suspended: m.Status == base.OrgMemberStatusSuspended,
+		})
+	}
+	for _, g := range groups {
+		data.Groups = append(data.Groups, &collectiondto.GrantableGroupResp{GroupID: g.ID, Name: g.Name})
+	}
+	return &collectiondto.GetGrantableResp{Data: data}, nil
+}
+
 func (uc *UC) checkGrants(ctx context.Context, db database.IDB, collection *entity.Collection,
 	reqs []*collectiondto.GrantReq) ([]*entity.CollectionGrant, error) {
 	now := timeutil.NowUTC()

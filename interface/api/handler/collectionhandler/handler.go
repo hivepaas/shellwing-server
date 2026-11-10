@@ -209,6 +209,30 @@ func (h *Handler) SetCollectionGrants(ctx *gin.Context) {
 	h.render(ctx, http.StatusOK, resp, err)
 }
 
+// GetCollectionGrantable returns whom a collection can be granted to
+// @Summary Returns whom a collection can be granted to
+// @Description For those who manage its access: the organization's people who are not removed, and its groups, with
+// @Description only what choosing them needs. The app's token reaches it.
+// @Tags    Collections
+// @Produce json
+// @Id      getCollectionGrantable
+// @Param   orgID path string true "organization ID"
+// @Param   collectionID path string true "collection ID"
+// @Success 200 {object} collectiondto.GetGrantableResp
+// @Failure 403 {object} hperrors.ErrorInfo
+// @Failure 404 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /orgs/{orgID}/collections/{collectionID}/grantable [get]
+func (h *Handler) GetCollectionGrantable(ctx *gin.Context) {
+	auth, err := h.auth(ctx)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	resp, err := h.collectionUC.Grantable(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID), ctx.Param(paramCollectionID))
+	h.render(ctx, http.StatusOK, resp, err)
+}
+
 // GetCollectionKeys returns the person's wraps of a collection's keys
 // @Summary Returns the person's wraps of a collection's keys
 // @Description The current key version, and the person's wraps of each version, newest first, with who wrapped

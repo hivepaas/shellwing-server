@@ -85,6 +85,34 @@ type CollectionDetailResp struct {
 	Members    []*MemberResp   `json:"members"`
 }
 
+// GrantablePersonResp is somebody of the organization a collection can be granted to.
+type GrantablePersonResp struct {
+	UserID   string       `json:"userId"`
+	Username string       `json:"username"`
+	FullName string       `json:"fullName"`
+	Role     base.OrgRole `json:"role"`
+	// Suspended people can be granted it: they get it once active again.
+	Suspended bool `json:"suspended"`
+}
+
+// GrantableGroupResp is a group of the organization a collection can be granted to.
+type GrantableGroupResp struct {
+	GroupID string `json:"groupId"`
+	Name    string `json:"name"`
+}
+
+// GrantableResp is whom a collection can be granted to: the organization's people who are not removed, and its
+// groups, by name. Only what choosing them needs.
+type GrantableResp struct {
+	People []*GrantablePersonResp `json:"people"`
+	Groups []*GrantableGroupResp  `json:"groups"`
+}
+
+type GetGrantableResp struct {
+	Meta *basedto.Meta  `json:"meta"`
+	Data *GrantableResp `json:"data"`
+}
+
 type GetCollectionResp struct {
 	Meta *basedto.Meta         `json:"meta"`
 	Data *CollectionDetailResp `json:"data"`
