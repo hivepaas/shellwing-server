@@ -3,6 +3,10 @@ package orguc
 import (
 	"context"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +29,7 @@ import (
 	"github.com/hivepaas/shellwing-server/pkg/datakey"
 	"github.com/hivepaas/shellwing-server/pkg/jwtsession"
 	"github.com/hivepaas/shellwing-server/pkg/sshca"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
 	"github.com/hivepaas/shellwing-server/pkg/ulid"
 	"github.com/hivepaas/shellwing-server/repository"
 	"github.com/hivepaas/shellwing-server/service/auditservice"
@@ -46,11 +51,25 @@ func (f *fakeAudit) Record(_ context.Context, _ database.IDB, entry *auditservic
 	return nil
 }
 
+// fakeRateLimit counts hits in memory, so that the limit on signing can be reached in a test without a Redis.
+type fakeRateLimit struct {
+	counts map[string]int64
+}
+
+func (f *fakeRateLimit) Hit(_ context.Context, key string, _ time.Duration) (int64, error) {
+	if f.counts == nil {
+		f.counts = map[string]int64{}
+	}
+	f.counts[key]++
+	return f.counts[key], nil
+}
+
 type env struct {
-	uc    *UC
-	db    *database.DB
-	audit *fakeAudit
-	org   string
+	uc     *UC
+	db     *database.DB
+	audit  *fakeAudit
+	limits *fakeRateLimit
+	org    string
 }
 
 // These need a real PostgreSQL with the migrations applied. Point SHW_TEST_PG_DSN at one to enable them. Each test has
@@ -73,8 +92,8 @@ func newEnv(t *testing.T) *env {
 	admin := open(conf)
 	t.Cleanup(func() { _ = admin.Close() })
 	stmts := []string{"CREATE SCHEMA " + schema}
-	for _, table := range []string{"organizations", "org_members", "ssh_cas", "users", "org_groups",
-		"org_group_members", "collection_grants"} {
+	for _, table := range []string{"organizations", "org_members", "ssh_cas", "ssh_certificates", "users",
+		"org_groups", "org_group_members", "collection_grants"} {
 		stmts = append(stmts, "CREATE TABLE "+schema+"."+table+" (LIKE public."+table+" INCLUDING ALL)")
 	}
 	for _, stmt := range stmts {
@@ -90,9 +109,10 @@ func newEnv(t *testing.T) *env {
 	t.Cleanup(func() { _ = bunDB.Close() })
 	db := &database.DB{DB: bunDB}
 
-	audit := &fakeAudit{}
-	e := &env{uc: New(db, repository.NewOrganizationRepo(), repository.NewSSHCARepo(), repository.NewOrgGroupRepo(),
-		repository.NewCollectionRepo(), audit), db: db, audit: audit}
+	audit, limits := &fakeAudit{}, &fakeRateLimit{}
+	e := &env{uc: New(db, repository.NewOrganizationRepo(), repository.NewSSHCARepo(),
+		repository.NewSSHCertificateRepo(), repository.NewOrgGroupRepo(), repository.NewCollectionRepo(),
+		limits, audit), db: db, audit: audit, limits: limits}
 	e.org = e.addOrg(t)
 	return e
 }
@@ -167,9 +187,9 @@ func TestACertificateNamesWhatAnAdminGranted(t *testing.T) {
 	assert.Contains(t, cert.KeyId, member.UserID())
 	assert.Equal(t, created.Data.PublicKey,
 		strings.TrimSpace(string(ssh.MarshalAuthorizedKey(cert.SignatureKey))))
-	assert.InDelta(t, 480*time.Minute, time.Until(resp.Data.ValidBefore), float64(time.Minute))
+	assert.InDelta(t, 120*time.Minute, time.Until(resp.Data.ValidBefore), float64(time.Minute))
 
-	_, err = e.uc.UpdateSSHSettings(ctx, admin, e.org, &orgdto.UpdateSSHSettingsReq{CertTTLMinutes: 10})
+	_, err = e.uc.UpdateSSHSettings(ctx, admin, e.org, &orgdto.UpdateSSHSettingsReq{CertTTLMinutes: gofn.ToPtr(10)})
 	require.NoError(t, err)
 	resp, err = e.uc.IssueSSHCertificate(ctx, member, e.org, issueReq(t))
 	require.NoError(t, err)
@@ -250,7 +270,7 @@ func TestAMemberCannotDoWhatAnAdminDoes(t *testing.T) {
 	require.ErrorIs(t, err, hperrors.ErrForbidden, "nobody grants themselves an account")
 	_, err = e.uc.GetSSHPrincipals(ctx, member, e.org, member.UserID())
 	require.ErrorIs(t, err, hperrors.ErrForbidden)
-	_, err = e.uc.UpdateSSHSettings(ctx, member, e.org, &orgdto.UpdateSSHSettingsReq{CertTTLMinutes: 1440})
+	_, err = e.uc.UpdateSSHSettings(ctx, member, e.org, &orgdto.UpdateSSHSettingsReq{CertTTLMinutes: gofn.ToPtr(1440)})
 	require.ErrorIs(t, err, hperrors.ErrForbidden)
 }
 
@@ -317,9 +337,8 @@ func TestACertificateNobodyRecordedIsNotHandedOut(t *testing.T) {
 	admin := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	_, err := e.uc.CreateSSHCA(ctx, admin, e.org)
 	require.NoError(t, err)
-	_, err = e.uc.SetSSHPrincipals(ctx, admin, e.org, admin.UserID(),
-		&orgdto.SetSSHPrincipalsReq{Principals: []string{"deploy"}})
-	require.NoError(t, err)
+	// Granted by somebody else: an admin's own accounts are never their own to grant.
+	grant(t, e, e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive), admin, "deploy")
 
 	req := issueReq(t)
 	e.audit.fail = assert.AnError
@@ -351,7 +370,7 @@ func TestListOrgsLeavesOutWhereThePersonIsNotActive(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Data, 1)
 	assert.Equal(t, e.org, resp.Data[0].ID)
-	assert.Equal(t, 480, resp.Data[0].SSHCertTTLMinutes)
+	assert.Equal(t, 120, resp.Data[0].SSHCertTTLMinutes)
 	assert.Empty(t, resp.Data[0].SSHPrincipals)
 }
 
@@ -386,13 +405,11 @@ func TestAMemberSeesTheOthersByNameAndRoleOnly(t *testing.T) {
 	admin := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
 	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
 	_ = e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusSuspended)
-	_, err := e.uc.SetSSHPrincipals(ctx, admin, e.org, admin.UserID(),
-		&orgdto.SetSSHPrincipalsReq{Principals: []string{"root"}})
-	require.NoError(t, err)
+	grant(t, e, e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive), admin, "root")
 
 	resp, err := e.uc.ListMembers(ctx, member, e.org)
 	require.NoError(t, err)
-	require.Len(t, resp.Data, 2, "the active ones")
+	require.Len(t, resp.Data, 3, "the active ones")
 	for _, m := range resp.Data {
 		assert.NotEmpty(t, m.Username)
 		assert.NotEmpty(t, m.Role)
@@ -613,6 +630,480 @@ func TestAGroupsAccountsAreEachMembers(t *testing.T) {
 	assert.Equal(t, []string{"web"}, certifiedFor(t, e, other))
 }
 
+func TestAnAdminCannotGrantThemselves(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	other := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+
+	_, err = e.uc.SetSSHPrincipals(ctx, owner, e.org, owner.UserID(),
+		&orgdto.SetSSHPrincipalsReq{Principals: []string{"root"}})
+	require.ErrorIs(t, err, hperrors.ErrSSHSelfGrant, "their own accounts")
+	_, err = e.uc.IssueSSHCertificate(ctx, owner, e.org, issueReq(t))
+	require.ErrorIs(t, err, hperrors.ErrSSHNoPrincipals, "the refused grant was rolled back")
+
+	// Through a group they are in: adding the accounts, and adding themselves to a group that has them.
+	ops := newGroup(t, e, owner, "Ops")
+	require.NoError(t, setMembers(e, owner, ops, owner))
+	_, err = e.uc.UpdateGroup(ctx, owner, e.org, ops, &orgdto.GroupReq{Name: "Ops", SSHPrincipals: []string{"root"}})
+	require.ErrorIs(t, err, hperrors.ErrSSHSelfGrant, "a group they are in")
+
+	web := newGroup(t, e, owner, "Web", "root")
+	require.ErrorIs(t, setMembers(e, owner, web, owner), hperrors.ErrSSHSelfGrant, "joining a group that grants")
+
+	// What is allowed: granting anybody else, and taking away from themselves.
+	grant(t, e, owner, other, "deploy")
+	grant(t, e, other, owner, "deploy", "app")
+	assert.Equal(t, []string{"app", "deploy"}, certifiedFor(t, e, owner))
+	grant(t, e, owner, owner, "deploy")
+	assert.Equal(t, []string{"deploy"}, certifiedFor(t, e, owner), "giving up one of their own")
+}
+
+func TestOnlySoManyCertificatesAnHour(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	grant(t, e, owner, person, "deploy")
+
+	device := person.User.AuthClaims.UID
+	e.limits.counts = map[string]int64{"ssh-cert-issue:device:" + device: certIssuesPerDevice}
+	_, err = e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.ErrorIs(t, err, hperrors.ErrTooManyRequests, "the device is over its limit")
+	assert.Equal(t, int64(0), e.limits.counts["ssh-cert-issue:user:"+person.UserID()],
+		"a device over its own limit does not use up the person's")
+
+	e.limits.counts = map[string]int64{"ssh-cert-issue:user:" + person.UserID(): certIssuesPerUser}
+	_, err = e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.ErrorIs(t, err, hperrors.ErrTooManyRequests, "the person is over their limit")
+
+	e.limits.counts = nil
+	_, err = e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+}
+
+// krlSays runs ssh-keygen against the organization's revocation list and returns what it said about each certificate.
+// It is the whole point of the list, so it is checked with the thing that reads it rather than by reading our own
+// bytes back.
+func krlSays(t *testing.T, e *env, who *basedto.Auth, certs ...string) string {
+	t.Helper()
+	keygen, err := exec.LookPath("ssh-keygen")
+	if err != nil {
+		t.Skip("ssh-keygen not installed, skipping what it checks")
+	}
+	krl, err := e.uc.SSHKRL(context.Background(), who, e.org)
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	krlPath := filepath.Join(dir, "krl")
+	require.NoError(t, os.WriteFile(krlPath, krl, 0o600))
+	args := []string{"-Q", "-f", krlPath}
+	for i, cert := range certs {
+		path := filepath.Join(dir, "cert"+strconv.Itoa(i)+".pub")
+		require.NoError(t, os.WriteFile(path, []byte(cert), 0o600))
+		args = append(args, path)
+	}
+	out, _ := exec.Command(keygen, args...).CombinedOutput() //nolint:gosec // G204: paths this test wrote
+	return string(out)
+}
+
+// krlBody is a revocation list without its header, which holds the time it was written and a version taken from it.
+// What is left is the authorities and the serials, which is what two lists are the same or different in.
+func krlBody(t *testing.T, krl []byte) []byte {
+	t.Helper()
+	const headerLen = 8 + 4 + 8 + 8 + 8 + 4 + 4 // magic, format, version, written at, flags, reserved, comment
+	require.GreaterOrEqual(t, len(krl), headerLen)
+	return krl[headerLen:]
+}
+
+func revokedCount(t *testing.T, out string) int {
+	t.Helper()
+	return strings.Count(out, "REVOKED")
+}
+
+func TestARevokedCertificateIsInTheListOpenSSHReads(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	other := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	grant(t, e, owner, person, "deploy")
+	grant(t, e, owner, other, "deploy")
+
+	theirs, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+	kept, err := e.uc.IssueSSHCertificate(ctx, other, e.org, issueReq(t))
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, revokedCount(t, krlSays(t, e, owner, theirs.Data.Certificate, kept.Data.Certificate)),
+		"nothing is revoked yet, and the list is still one ssh-keygen reads")
+
+	// Taking the accounts away is what revokes: the certificate they hold still names them.
+	grant(t, e, owner, person)
+	out := krlSays(t, e, owner, theirs.Data.Certificate, kept.Data.Certificate)
+	assert.Equal(t, 1, revokedCount(t, out), "theirs only: %s", out)
+	assert.Contains(t, out, "cert0.pub")
+}
+
+func TestWhatRevokesACertificate(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+
+	// Each case gives somebody a certificate, then does the thing, then counts what is left to revoke.
+	cases := []struct {
+		what string
+		do   func(t *testing.T, person *basedto.Auth, group string)
+	}{
+		{"the accounts of their own are taken away", func(t *testing.T, person *basedto.Auth, _ string) {
+			t.Helper()
+			grant(t, e, owner, person)
+		}},
+		{"the accounts of their own are changed", func(t *testing.T, person *basedto.Auth, _ string) {
+			t.Helper()
+			grant(t, e, owner, person, "other")
+		}},
+		{"they are suspended", func(t *testing.T, person *basedto.Auth, _ string) {
+			t.Helper()
+			_, err := e.uc.UpdateMemberStatus(ctx, owner, e.org, person.UserID(),
+				&orgdto.UpdateMemberStatusReq{Status: base.OrgMemberStatusSuspended})
+			require.NoError(t, err)
+		}},
+		{"they are removed", func(t *testing.T, person *basedto.Auth, _ string) {
+			t.Helper()
+			_, err := e.uc.UpdateMemberStatus(ctx, owner, e.org, person.UserID(),
+				&orgdto.UpdateMemberStatusReq{Status: base.OrgMemberStatusRemoved})
+			require.NoError(t, err)
+		}},
+		{"a group they are in changes what it grants", func(t *testing.T, person *basedto.Auth, group string) {
+			t.Helper()
+			_, err := e.uc.UpdateGroup(ctx, owner, e.org, group,
+				&orgdto.GroupReq{Name: "g-" + person.UserID(), SSHPrincipals: []string{"other"}})
+			require.NoError(t, err)
+		}},
+		{"a group they are in is deleted", func(t *testing.T, _ *basedto.Auth, group string) {
+			t.Helper()
+			_, err := e.uc.DeleteGroup(ctx, owner, e.org, group)
+			require.NoError(t, err)
+		}},
+		{"they are taken out of a group", func(t *testing.T, _ *basedto.Auth, group string) {
+			t.Helper()
+			require.NoError(t, setMembers(e, owner, group))
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.what, func(t *testing.T) {
+			person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+			group := newGroup(t, e, owner, "g-"+person.UserID(), "deploy")
+			require.NoError(t, setMembers(e, owner, group, person))
+			cert, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+			require.NoError(t, err)
+			require.Equal(t, 0, revokedCount(t, krlSays(t, e, owner, cert.Data.Certificate)))
+
+			c.do(t, person, group)
+			out := krlSays(t, e, owner, cert.Data.Certificate)
+			assert.Equal(t, 1, revokedCount(t, out), "%s: %s", c.what, out)
+		})
+	}
+}
+
+func TestReplacingTheAuthorityRevokesWhatItSigned(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	grant(t, e, owner, person, "deploy")
+	old, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+
+	_, err = e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	fresh, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+
+	// The list names the retired authority too: a server that still trusts it would otherwise keep taking what it
+	// signed until each certificate ended.
+	out := krlSays(t, e, owner, old.Data.Certificate, fresh.Data.Certificate)
+	assert.Equal(t, 1, revokedCount(t, out), "the old one only: %s", out)
+	assert.Contains(t, out, "cert0.pub")
+}
+
+func TestTheListLeavesOutWhatHasEndedAnyway(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	ca, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	grant(t, e, owner, person, "deploy")
+	cert, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+	grant(t, e, owner, person)
+	require.NotEmpty(t, revokedCount(t, krlSays(t, e, owner, cert.Data.Certificate)))
+
+	// Once it has ended, sshd refuses it on its own and the list has nothing to say about it.
+	_, err = e.db.NewUpdate().Model((*entity.SSHCertificate)(nil)).
+		Set("valid_before = ?", timeutil.NowUTC().Add(-time.Minute)).
+		Where("org_id = ?", e.org).Exec(ctx)
+	require.NoError(t, err)
+	krl, err := e.uc.SSHKRL(ctx, owner, e.org)
+	require.NoError(t, err)
+	assert.Less(t, len(krl), 100, "a header and no sections, though CA %s is still listed", ca.Data.ID)
+}
+
+func TestTheListIsForTheOrganizationsOwnMembers(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+
+	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err = e.uc.SSHKRL(ctx, member, e.org)
+	require.NoError(t, err, "a server's configuration is any member's to set up, as the CA public key is")
+
+	outsider := e.addMember(t, e.addOrg(t), base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_, err = e.uc.SSHKRL(ctx, outsider, e.org)
+	require.Error(t, err, "another organization reaches nothing of this one")
+}
+
+func TestADisabledAccountKeepsNoCertificateInAnyOrganization(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	grant(t, e, owner, person, "deploy")
+	here, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+
+	// The same person in a second organization, with a certificate of its authority.
+	otherOrg := e.addOrg(t)
+	otherOwner := e.addMember(t, otherOrg, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	_, err = e.db.NewInsert().Model(&entity.OrgMember{
+		OrgID: otherOrg, UserID: person.UserID(), Role: base.OrgRoleMember, Status: base.OrgMemberStatusActive,
+	}).Exec(ctx)
+	require.NoError(t, err)
+	_, err = e.uc.CreateSSHCA(ctx, otherOwner, otherOrg)
+	require.NoError(t, err)
+	_, err = e.uc.SetSSHPrincipals(ctx, otherOwner, otherOrg, person.UserID(),
+		&orgdto.SetSSHPrincipalsReq{Principals: []string{"deploy"}})
+	require.NoError(t, err)
+	there, err := e.uc.IssueSSHCertificate(ctx, person, otherOrg, issueReq(t))
+	require.NoError(t, err)
+
+	// useruc revokes the account; here the repository stands in for it, which is what it calls. One organization's
+	// list says nothing about another's certificate, so each is asked for its own.
+	marked, err := repository.NewSSHCertificateRepo().RevokeAllOfUser(ctx, e.db, person.UserID(), timeutil.NowUTC())
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), marked, "both organizations")
+	assert.Equal(t, 1, revokedCount(t, krlSays(t, e, owner, here.Data.Certificate)))
+
+	krl, err := e.uc.SSHKRL(ctx, otherOwner, otherOrg)
+	require.NoError(t, err)
+	assert.Greater(t, len(krl), 100, "the other organization's list names theirs too")
+	assert.NotEmpty(t, there.Data.Certificate)
+}
+
+func TestWhatACertificateIsAllowedToDo(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	grant(t, e, owner, person, "deploy")
+
+	extensionsOf := func(t *testing.T) map[string]string {
+		t.Helper()
+		resp, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+		require.NoError(t, err)
+		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(resp.Data.Certificate)) //nolint:dogsled // only the key
+		require.NoError(t, err)
+		cert, ok := key.(*ssh.Certificate)
+		require.True(t, ok)
+		return cert.Extensions
+	}
+
+	// Until an organization says otherwise: a terminal, and nothing that reaches past the server it logs in to.
+	assert.Equal(t, map[string]string{sshca.ExtensionPermitPTY: ""}, extensionsOf(t))
+	orgs, err := e.uc.ListOrgs(ctx, owner)
+	require.NoError(t, err)
+	assert.Equal(t, []string{sshca.ExtensionPermitPTY}, orgs.Data[0].SSHCertExtensions)
+
+	set := func(t *testing.T, extensions ...string) {
+		t.Helper()
+		_, err := e.uc.UpdateSSHSettings(ctx, owner, e.org, &orgdto.UpdateSSHSettingsReq{
+			CertTTLMinutes: gofn.ToPtr(120), CertExtensions: &extensions,
+		})
+		require.NoError(t, err)
+	}
+
+	set(t, sshca.ExtensionPermitPortForwarding, sshca.ExtensionPermitPTY)
+	assert.Equal(t, map[string]string{sshca.ExtensionPermitPTY: "", sshca.ExtensionPermitPortForwarding: ""},
+		extensionsOf(t))
+	orgs, err = e.uc.ListOrgs(ctx, owner)
+	require.NoError(t, err)
+	assert.Equal(t, []string{sshca.ExtensionPermitPTY, sshca.ExtensionPermitPortForwarding},
+		orgs.Data[0].SSHCertExtensions, "kept in one order, whatever order they were asked for in")
+
+	set(t)
+	assert.Empty(t, extensionsOf(t), "none is a setting of its own")
+
+	// Leaving it out changes nothing: an empty list and an absent one are different things.
+	_, err = e.uc.UpdateSSHSettings(ctx, owner, e.org, &orgdto.UpdateSSHSettingsReq{CertTTLMinutes: gofn.ToPtr(60)})
+	require.NoError(t, err)
+	orgs, err = e.uc.ListOrgs(ctx, owner)
+	require.NoError(t, err)
+	assert.Empty(t, orgs.Data[0].SSHCertExtensions)
+	assert.Equal(t, 60, orgs.Data[0].SSHCertTTLMinutes)
+}
+
+func TestChangingWhatCertificatesMayDoRevokesTheOnesHeld(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	grant(t, e, owner, person, "deploy")
+	forwarding := []string{sshca.ExtensionPermitPTY, sshca.ExtensionPermitPortForwarding}
+	_, err = e.uc.UpdateSSHSettings(ctx, owner, e.org,
+		&orgdto.UpdateSSHSettingsReq{CertTTLMinutes: gofn.ToPtr(120), CertExtensions: &forwarding})
+	require.NoError(t, err)
+
+	cert, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+	require.Equal(t, 0, revokedCount(t, krlSays(t, e, owner, cert.Data.Certificate)))
+
+	// Asking for the same thing again revokes nothing: there is no change for a held certificate to disagree with.
+	same := slices.Clone(forwarding)
+	_, err = e.uc.UpdateSSHSettings(ctx, owner, e.org,
+		&orgdto.UpdateSSHSettingsReq{CertTTLMinutes: gofn.ToPtr(120), CertExtensions: &same})
+	require.NoError(t, err)
+	assert.Equal(t, 0, revokedCount(t, krlSays(t, e, owner, cert.Data.Certificate)))
+
+	// Taking forwarding away does: the certificate they hold still allows it.
+	narrowed := []string{sshca.ExtensionPermitPTY}
+	_, err = e.uc.UpdateSSHSettings(ctx, owner, e.org,
+		&orgdto.UpdateSSHSettingsReq{CertTTLMinutes: gofn.ToPtr(120), CertExtensions: &narrowed})
+	require.NoError(t, err)
+	out := krlSays(t, e, owner, cert.Data.Certificate)
+	assert.Equal(t, 1, revokedCount(t, out), out)
+
+	// And the next one is signed the narrow way.
+	fresh, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+	assert.Equal(t, 0, revokedCount(t, krlSays(t, e, owner, fresh.Data.Certificate)))
+}
+
+func TestOnlyExtensionsSSHDKnowsAreAccepted(t *testing.T) {
+	for _, extensions := range [][]string{
+		{"permit-everything"},
+		{sshca.ExtensionPermitPTY, "permit-pty "},
+		{sshca.ExtensionPermitPTY, sshca.ExtensionPermitPTY},
+	} {
+		req := &orgdto.UpdateSSHSettingsReq{CertTTLMinutes: gofn.ToPtr(120), CertExtensions: &extensions}
+		assert.NotEmpty(t, req.Validate(), "%v", extensions)
+	}
+	ok := slices.Clone(sshca.AllExtensions)
+	assert.Empty(t, (&orgdto.UpdateSSHSettingsReq{CertTTLMinutes: gofn.ToPtr(120), CertExtensions: &ok}).Validate())
+	none := []string{}
+	assert.Empty(t, (&orgdto.UpdateSSHSettingsReq{CertTTLMinutes: gofn.ToPtr(120), CertExtensions: &none}).Validate())
+}
+
+func TestAServerFetchesTheListWithTheOrganizationsToken(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	grant(t, e, owner, person, "deploy")
+	cert, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+
+	_, err = e.uc.SSHKRLForToken(ctx, e.org, "")
+	require.ErrorIs(t, err, hperrors.ErrSSHKRLTokenInvalid, "no token")
+	_, err = e.uc.SSHKRLForToken(ctx, e.org, strings.Repeat("a", 64))
+	require.ErrorIs(t, err, hperrors.ErrSSHKRLTokenInvalid, "a token nobody has")
+
+	made, err := e.uc.CreateSSHKRLToken(ctx, owner, e.org)
+	require.NoError(t, err)
+	require.Len(t, made.Data.Token, 64, "32 bytes, hex")
+
+	// What a server fetches with its token is what a member fetches with their session. Compared past the header:
+	// each list carries the time it was written, and the two calls can fall on either side of a second.
+	mine, err := e.uc.SSHKRL(ctx, owner, e.org)
+	require.NoError(t, err)
+	theirs, err := e.uc.SSHKRLForToken(ctx, e.org, made.Data.Token)
+	require.NoError(t, err)
+	assert.Equal(t, krlBody(t, mine), krlBody(t, theirs))
+
+	// Only the hash is kept, so nothing can hand the token back.
+	orgs, err := e.uc.ListOrgs(ctx, owner)
+	require.NoError(t, err)
+	assert.NotZero(t, orgs.Data[0].SSHKRLTokenCreatedAt, "that there is one is said")
+	var stored string
+	require.NoError(t, e.db.NewRaw("SELECT ssh_krl_token_hash FROM organizations WHERE id = ?", e.org).
+		Scan(ctx, &stored))
+	assert.NotEqual(t, made.Data.Token, stored)
+
+	// It fetches that organization's list and no other's.
+	_, err = e.uc.SSHKRLForToken(ctx, e.addOrg(t), made.Data.Token)
+	require.ErrorIs(t, err, hperrors.ErrSSHKRLTokenInvalid, "another organization's address")
+
+	// Revoking shows up in what the server fetches, which is the whole point of its having a token.
+	grant(t, e, owner, person)
+	theirs, err = e.uc.SSHKRLForToken(ctx, e.org, made.Data.Token)
+	require.NoError(t, err)
+	assert.Greater(t, len(theirs), len(mine))
+	assert.Equal(t, 1, revokedCount(t, krlSays(t, e, owner, cert.Data.Certificate)))
+
+	// A new token replaces the one before it, and taking it away stops both.
+	replaced, err := e.uc.CreateSSHKRLToken(ctx, owner, e.org)
+	require.NoError(t, err)
+	_, err = e.uc.SSHKRLForToken(ctx, e.org, made.Data.Token)
+	require.ErrorIs(t, err, hperrors.ErrSSHKRLTokenInvalid, "the one it replaced")
+	_, err = e.uc.SSHKRLForToken(ctx, e.org, replaced.Data.Token)
+	require.NoError(t, err)
+
+	_, err = e.uc.DeleteSSHKRLToken(ctx, owner, e.org)
+	require.NoError(t, err)
+	_, err = e.uc.SSHKRLForToken(ctx, e.org, replaced.Data.Token)
+	require.ErrorIs(t, err, hperrors.ErrSSHKRLTokenInvalid, "taken away")
+	_, err = e.uc.SSHKRL(ctx, owner, e.org)
+	require.NoError(t, err, "a member still fetches it with their session")
+}
+
+func TestOnlyAnAdminMakesTheFetchToken(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHKRLToken(ctx, member, e.org)
+	require.Error(t, err)
+	_, err = e.uc.DeleteSSHKRLToken(ctx, member, e.org)
+	require.Error(t, err)
+}
+
+func TestARevokedDeviceKeepsNoCertificate(t *testing.T) {
+	e, ctx := newEnv(t), context.Background()
+	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
+	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	require.NoError(t, err)
+	grant(t, e, owner, person, "deploy")
+	cert, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
+	require.NoError(t, err)
+
+	// sessionuc revokes the device; here the repository stands in for it, which is what it calls.
+	marked, err := repository.NewSSHCertificateRepo().RevokeOfDevice(ctx, e.db,
+		person.User.AuthClaims.UID, timeutil.NowUTC())
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), marked)
+	out := krlSays(t, e, owner, cert.Data.Certificate)
+	assert.Equal(t, 1, revokedCount(t, out), out)
+}
+
 func TestAGroupNameIsTakenWhateverItsCase(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
@@ -682,8 +1173,10 @@ func TestARemovedMemberLeavesEveryGroup(t *testing.T) {
 	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
 	require.NoError(t, err)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
+	// Somebody other than the owner stays behind: an admin cannot put themselves in a group that grants accounts.
+	stays := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
 	ops := newGroup(t, e, owner, "Ops", "root")
-	require.NoError(t, setMembers(e, owner, ops, person, owner))
+	require.NoError(t, setMembers(e, owner, ops, person, stays))
 
 	status := func(to base.OrgMemberStatus) {
 		_, err := e.uc.UpdateMemberStatus(ctx, owner, e.org, person.UserID(), &orgdto.UpdateMemberStatusReq{Status: to})
@@ -700,5 +1193,5 @@ func TestARemovedMemberLeavesEveryGroup(t *testing.T) {
 	groups, err := e.uc.ListGroups(ctx, owner, e.org)
 	require.NoError(t, err)
 	require.Len(t, groups.Data[0].Members, 1, "the others stay")
-	assert.Equal(t, owner.UserID(), groups.Data[0].Members[0].UserID)
+	assert.Equal(t, stays.UserID(), groups.Data[0].Members[0].UserID)
 }

@@ -20,6 +20,10 @@ const (
 	paramGroupID = "groupID"
 )
 
+// headerKRLToken is how a target server presents its token for the revocation list. It is its own header rather than
+// Authorization, so that it is never mistaken for a session and a proxy that logs the URL does not log the token.
+const headerKRLToken = "X-Shellwing-KRL-Token" //nolint:gosec // G101: a header name, not a credential
+
 type Handler struct {
 	*handler.BaseHandler
 	authHandler *authhandler.Handler
@@ -53,6 +57,100 @@ func (h *Handler) ListOrgs(ctx *gin.Context) {
 		return
 	}
 	resp, err := h.orgUC.ListOrgs(h.RequestCtx(ctx), auth)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, resp)
+}
+
+// SSHKRL returns the organization's revocation list
+// @Summary Returns the organization's SSH key revocation list
+// @Description The binary file sshd's RevokedKeys names, which refuses a certificate by serial for the rest of its
+// @Description lifetime. It covers every authority the organization has had, and is a valid list even with nothing
+// @Description revoked. Fetch it the way the rest of a server's configuration is kept up to date.
+// @Tags    Organizations
+// @Produce application/octet-stream
+// @Id      sshKRL
+// @Param   orgID path string true "organization ID"
+// @Success 200
+// @Failure 404 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /orgs/{orgID}/ssh/krl [get]
+func (h *Handler) SSHKRL(ctx *gin.Context) {
+	// A target server has a token and no session; a person on the web app has a session and no token. The token is
+	// checked first so that one presented and wrong is an error rather than a fall back to asking for a session.
+	krl, err := h.sshKRL(ctx)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	// Named so that a fetch straight to disk lands on something recognizable, and not cached: the point of asking is
+	// to learn what has been revoked since.
+	ctx.Header("Content-Disposition", `attachment; filename="shellwing_krl"`)
+	ctx.Header("Cache-Control", "no-store")
+	ctx.Data(http.StatusOK, "application/octet-stream", krl)
+}
+
+func (h *Handler) sshKRL(ctx *gin.Context) ([]byte, error) {
+	if token := ctx.GetHeader(headerKRLToken); token != "" {
+		//nolint:wrapcheck // rendered as it is
+		return h.orgUC.SSHKRLForToken(h.RequestCtx(ctx), ctx.Param(paramOrgID), token)
+	}
+	auth, err := h.authHandler.GetSyncAuth(ctx)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // rendered as it is
+	}
+	return h.orgUC.SSHKRL(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID)) //nolint:wrapcheck // rendered as it is
+}
+
+// CreateSSHKRLToken makes a token for the organization's servers
+// @Summary Makes a token the organization's servers fetch the revocation list with
+// @Description The token is in this answer and nowhere else: only its hash is kept. One made before stops working, so
+// @Description this is also how a token that may have leaked is replaced.
+// @Tags    Organizations
+// @Produce json
+// @Id      createSSHKRLToken
+// @Param   orgID path string true "organization ID"
+// @Success 201 {object} orgdto.CreateSSHKRLTokenResp
+// @Failure 403 {object} hperrors.ErrorInfo
+// @Failure 404 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /orgs/{orgID}/ssh/krl/token [post]
+func (h *Handler) CreateSSHKRLToken(ctx *gin.Context) {
+	auth, err := h.adminAuth(ctx)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	resp, err := h.orgUC.CreateSSHKRLToken(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID))
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusCreated, resp)
+}
+
+// DeleteSSHKRLToken takes the organization's fetch token away
+// @Summary Takes away the token the organization's servers fetch the revocation list with
+// @Description They stop being able to fetch; the list each has in place keeps working, and refuses less than the
+// @Description current one rather than more.
+// @Tags    Organizations
+// @Produce json
+// @Id      deleteSSHKRLToken
+// @Param   orgID path string true "organization ID"
+// @Success 200 {object} orgdto.DeleteSSHKRLTokenResp
+// @Failure 403 {object} hperrors.ErrorInfo
+// @Failure 404 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /orgs/{orgID}/ssh/krl/token [delete]
+func (h *Handler) DeleteSSHKRLToken(ctx *gin.Context) {
+	auth, err := h.adminAuth(ctx)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	resp, err := h.orgUC.DeleteSSHKRLToken(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID))
 	if err != nil {
 		h.RenderError(ctx, err)
 		return

@@ -13,7 +13,14 @@ type Organization struct {
 	Status    base.OrgStatus `json:"status"`
 	UpdateVer int            `json:"updateVer"`
 	// SSHCertTTLMinutes is how long a certificate its CA signs lasts.
-	SSHCertTTLMinutes int `bun:"ssh_cert_ttl_minutes,nullzero,default:480" json:"sshCertTtlMinutes"`
+	SSHCertTTLMinutes int `bun:"ssh_cert_ttl_minutes,nullzero,default:120" json:"sshCertTtlMinutes"`
+	// SSHCertExtensions is what a certificate its CA signs is allowed to do, by sshd's extension names. Empty: it
+	// logs in and runs a command, with no terminal and nothing reaching past the server.
+	SSHCertExtensions []string `bun:"ssh_cert_extensions,array,nullzero,default:'{permit-pty}'" json:"sshCertExtensions"`
+	// SSHKRLTokenHash is what a target server fetches the revocation list with, hashed. It has no JSON name: the
+	// token is shown once, when it is made, and never again.
+	SSHKRLTokenHash      string    `bun:"ssh_krl_token_hash,nullzero" json:"-"`
+	SSHKRLTokenCreatedAt time.Time `bun:"ssh_krl_token_created_at,nullzero" json:"sshKrlTokenCreatedAt,omitzero"`
 
 	CreatedAt time.Time `bun:",default:current_timestamp" json:"createdAt"`
 	UpdatedAt time.Time `bun:",default:current_timestamp" json:"updatedAt"`

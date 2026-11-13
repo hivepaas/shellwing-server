@@ -20,6 +20,7 @@ type UC struct {
 	deviceRepo             repository.DeviceRepo
 	loginTrustedDeviceRepo repository.LoginTrustedDeviceRepo
 	settingRepo            repository.SettingRepo
+	sshCertRepo            repository.SSHCertificateRepo
 	systemStatusRepo       repository.SystemStatusRepo
 	userRepo               repository.UserRepo
 	userTokenRepo          cacherepository.UserTokenRepo
@@ -41,6 +42,7 @@ func New(
 	deviceRepo repository.DeviceRepo,
 	loginTrustedDeviceRepo repository.LoginTrustedDeviceRepo,
 	settingRepo repository.SettingRepo,
+	sshCertRepo repository.SSHCertificateRepo,
 	systemStatusRepo repository.SystemStatusRepo,
 	userRepo repository.UserRepo,
 	userTokenRepo cacherepository.UserTokenRepo,
@@ -61,6 +63,7 @@ func New(
 		deviceRepo:             deviceRepo,
 		loginTrustedDeviceRepo: loginTrustedDeviceRepo,
 		settingRepo:            settingRepo,
+		sshCertRepo:            sshCertRepo,
 		systemStatusRepo:       systemStatusRepo,
 		userRepo:               userRepo,
 		userTokenRepo:          userTokenRepo,

@@ -11,7 +11,13 @@ import { SshCaQueries } from "~/organization/data/queries";
 import { useReplaceSshCaDialog } from "~/organization/dialogs";
 import { ESshCaStatus, type SshCa } from "~/organization/domain";
 import { PublicKeyBlock } from "~/organization/module-shared/components";
-import { SSHD_TRUSTED_USER_CA_KEYS_LINE, SSH_CA_PUBLIC_KEY_PATH } from "~/organization/module-shared/constants";
+import {
+    SSHD_REVOKED_KEYS_LINE,
+    SSHD_TRUSTED_USER_CA_KEYS_LINE,
+    SSH_CA_PUBLIC_KEY_PATH,
+    SSH_KRL_PATH,
+    sshKrlApiPath,
+} from "~/organization/module-shared/constants";
 
 import { ContentBlock, PopConfirm } from "@application/shared/components";
 
@@ -22,7 +28,7 @@ function formatDate(date: Date) {
     return format(date, "yyyy-MM-dd HH:mm");
 }
 
-function TrustHowTo() {
+function TrustHowTo({ orgId }: { orgId: string }) {
     return (
         <div className="flex flex-col gap-3 text-sm">
             <span className="font-medium">Have each server trust it</span>
@@ -40,6 +46,19 @@ function TrustHowTo() {
                         label="Copy the line"
                     />
                 </li>
+                <li className="flex flex-col gap-2">
+                    <span>Add this line as well, so the server refuses a certificate that has been revoked:</span>
+                    <PublicKeyBlock
+                        value={SSHD_REVOKED_KEYS_LINE}
+                        label="Copy the line"
+                    />
+                    <span className="text-muted-foreground">
+                        Then keep <code className="font-mono text-xs">{SSH_KRL_PATH}</code> up to date from{" "}
+                        <code className="font-mono text-xs">{sshKrlApiPath(orgId)}</code>, the way the rest of the
+                        server&apos;s configuration is. Write it to a temporary name and move it into place: a server
+                        told to read the file and unable to refuses every certificate.
+                    </span>
+                </li>
                 <li>
                     Reload sshd: <code className="font-mono text-xs">{RELOAD_SSHD}</code>, or{" "}
                     <code className="font-mono text-xs">{RELOAD_SSH}</code> on Debian and Ubuntu.
@@ -47,13 +66,14 @@ function TrustHowTo() {
             </ol>
             <p className="text-muted-foreground">
                 A member then logs in with a certificate this server signs for them, as one of the accounts granted to
-                them below. sshd logs the person and the device of each login.
+                them below. sshd logs the person and the device of each login. Taking an account away revokes the
+                certificates they hold, which reaches this server once it has fetched the list again.
             </p>
         </div>
     );
 }
 
-function ActiveCa({ ca, onReplace }: { ca: SshCa; onReplace: () => void }) {
+function ActiveCa({ orgId, ca, onReplace }: { orgId: string; ca: SshCa; onReplace: () => void }) {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -77,7 +97,7 @@ function ActiveCa({ ca, onReplace }: { ca: SshCa; onReplace: () => void }) {
                     label="Copy the public key"
                 />
             </div>
-            <TrustHowTo />
+            <TrustHowTo orgId={orgId} />
         </div>
     );
 }
@@ -187,6 +207,7 @@ export function SshCaSection({ orgId }: Props) {
 
                 {active !== null && (
                     <ActiveCa
+                        orgId={orgId}
                         ca={active}
                         onReplace={() => {
                             replaceDialog.actions.open(orgId);

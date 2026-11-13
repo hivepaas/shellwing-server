@@ -16,6 +16,7 @@ type UC struct {
 
 	binObjectRepo repository.BinObjectRepo
 	settingRepo   repository.SettingRepo
+	sshCertRepo   repository.SSHCertificateRepo
 	userRepo      repository.UserRepo
 	userTokenRepo cacherepository.UserTokenRepo
 	rateLimitRepo cacherepository.RateLimitRepo
@@ -33,6 +34,7 @@ func New(
 
 	binObjectRepo repository.BinObjectRepo,
 	settingRepo repository.SettingRepo,
+	sshCertRepo repository.SSHCertificateRepo,
 	userRepo repository.UserRepo,
 	userTokenRepo cacherepository.UserTokenRepo,
 	rateLimitRepo cacherepository.RateLimitRepo,
@@ -49,6 +51,7 @@ func New(
 
 		binObjectRepo: binObjectRepo,
 		settingRepo:   settingRepo,
+		sshCertRepo:   sshCertRepo,
 		userRepo:      userRepo,
 		userTokenRepo: userTokenRepo,
 		rateLimitRepo: rateLimitRepo,

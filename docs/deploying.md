@@ -56,23 +56,127 @@ in the web app, or with the API below.
 3. An admin grants each person the accounts they may log in as:
    `PUT /api/orgs/{org}/ssh/members/{user}/principals` with `{"principals": ["deploy"]}`, or gives them to a group
    (*Administration › Groups*, or `/api/orgs/{org}/groups`) whose members all get them. A person's certificates name
-   their own accounts and their groups'. Nobody has any until granted, owners included. A username is never one by
-   itself: whoever could take the name `root` would get root on every server.
+   their own accounts and their groups', at most 32 together. Nobody has any until granted, owners included. A username
+   is never one by itself: whoever could take the name `root` would get root on every server.
 
-A certificate lasts 8 hours unless `PUT /api/orgs/{org}/ssh/settings` says otherwise, from 5 minutes to a day. Each one
-signed is in the audit log (`ssh-cert-issue`), and `sshd` logs the person and device of each login.
+A certificate lasts 2 hours unless `PUT /api/orgs/{org}/ssh/settings` says otherwise, from 5 minutes to a day. Each one
+signed is in the audit log (`ssh-cert-issue`), and `sshd` logs the person and device of each login. One person may be
+signed 60 an hour, and one of their devices 30: ordinary use is a handful a day, and the limit bounds what a stolen
+token can collect.
 
-**Taking access away.** A certificate cannot be revoked. Removing a person's accounts or groups, suspending or
-removing them from the organization, or disabling their account stops new ones; revoking a device stops new ones on
-that device. The ones they hold work until they end, so keep the lifetime short.
+**Nobody grants themselves.** An admin may grant anybody else, and may take accounts away from themselves, but a change
+that would give them an account they did not already have is refused - whether through their own accounts, a group's,
+or by joining a group. Another admin grants it, and the audit log says who. Without that rule one admin account taken
+over is root on every server the CA is trusted on. It is not a complete separation: an admin who can invite a user can
+still invite one whose mailbox is theirs, so grant the admin role as narrowly as the accounts themselves.
 
-**Replacing the authority.** Making a new one retires the old at once, and destroys its private key: from then on
-certificates are signed by the new one only. Add its public key to the target servers beside the old one straight away,
-and remove the old one when its last certificates have ended. If the key may have leaked, remove the old one first.
+**What a certificate may do.** A certificate carries the extensions `sshd` checks, and anything it does not carry is
+refused however the target server is configured - so this is the narrower of the two gates. By default a certificate
+allows a terminal and nothing else: `permit-pty`. Port forwarding is off, because it is how somebody reaches a machine
+they were never granted through one they were, and so is agent forwarding, which hands the person's keys to whoever
+has root on the server they logged in to. `ssh-keygen -s` grants all five by default, which suits a person signing one
+certificate for themselves rather than a server signing them for everybody.
+
+*Administration › SSH Certificates* chooses them, or `PUT /api/orgs/{org}/ssh/settings` with
+`{"certExtensions": ["permit-pty", "permit-port-forwarding"]}`. Both fields of that call are optional and what is left
+out is left alone. An empty list is a setting of its own: a certificate that logs in and runs a command, with no
+terminal. Changing them revokes the certificates people hold, since each of those still allows what it allowed when it
+was signed.
+
+**Taking access away.** A change to what somebody may log in as revokes the certificates they already hold, so that
+what they have matches what they are granted. These all revoke: their own accounts changed or taken away, a group of
+theirs changing what it grants or being deleted, being taken out of a group, being suspended or removed from the
+organization, their account being disabled or deleted, the device holding it being revoked, and a change to what
+certificates may do. The app asks for a new
+certificate when it next needs one, so somebody who still has accounts carries on; somebody who does not, stops.
+
+Revoking puts the certificate's serial in the organization's revocation list, which the target servers read through
+`RevokedKeys` - see below. Until a server has fetched the list, what was revoked still works there until it ends,
+which is the other reason to keep the lifetime short.
+
+**Replacing the authority.** Making a new one retires the old at once, destroys its private key, and revokes
+everything it signed: from then on certificates are signed by the new one only. Add its public key to the target
+servers beside the old one straight away, and remove the old one when its last certificates have ended. If the key may
+have leaked, remove the old one first.
 
 **The private key** is in PostgreSQL, sealed with the server's data key like any stored secret. Anybody with both the
 database and the app secret can sign for every account the target servers let a certificate reach, so treat a backup of
 them as you would the target servers' root.
+
+### Hardening the target servers
+
+What the CA says is only half of it: the other half is each server deciding what it will accept. These cost nothing to
+set up and they are what keeps one compromised CA from being root everywhere.
+
+**Let each server name the accounts it accepts.** `TrustedUserCAKeys` on its own means any principal the CA signs is
+good on that server. With an `AuthorizedPrincipalsFile`, the server decides too, and a certificate naming `root` is
+worth nothing on a server whose file does not list it:
+
+```
+# /etc/ssh/sshd_config
+TrustedUserCAKeys /etc/ssh/shellwing_ca.pub
+AuthorizedPrincipalsFile /etc/ssh/principals/%u
+```
+
+`/etc/ssh/principals/deploy` then holds the principals that may become the `deploy` account, one per line. Keep these
+files with the server's configuration, not from this server: the point is that the two have to agree.
+
+**Read the revocation list.** This is what makes taking access away take effect before a certificate ends. The server
+keeps a list per organization and `sshd` refuses everything in it:
+
+```
+# /etc/ssh/sshd_config
+RevokedKeys /etc/ssh/shellwing_krl
+```
+
+`GET /api/orgs/{org}/ssh/krl` returns that list, the binary format `ssh-keygen -k` writes and `sshd` reads. It covers
+every authority the organization has had, so one file is enough however many times the CA has been replaced, and it is
+a valid list even with nothing revoked yet.
+
+**Giving a server a token.** A server has no account here, so it fetches with a token of its own.
+*Administration › SSH Certificates* makes one, or `POST /api/orgs/{org}/ssh/krl/token`; it is in that one answer and
+nowhere else, since only its hash is kept. Making another replaces it, which is how one that may have leaked is
+retired, and `DELETE /api/orgs/{org}/ssh/krl/token` takes it away.
+
+The token fetches one organization's revocation list and does nothing else. That is the point of it: the alternative
+is a person's session token on every target server, which can do everything that person can. A server that is taken
+over gives up a list of random serial numbers and the public keys already sitting in its own `/etc/ssh`.
+
+A member may also fetch the list with their own session, as they may fetch the CA's public key - handy for a look, and
+for a configuration-management run that already holds an operator's credentials.
+
+**Running the fetch.** [`deployment/krl/`](../deployment/krl/) holds a script and a systemd timer that do it:
+
+```sh
+install -m 0755 shellwing-krl-fetch.sh /usr/local/bin/
+install -m 0644 shellwing-krl.service shellwing-krl.timer /etc/systemd/system/
+install -d -m 0700 /etc/shellwing
+cat > /etc/shellwing/krl.conf <<'CONF'
+SHELLWING_URL=https://shellwing.example.com
+SHELLWING_ORG=01JC...
+SHELLWING_KRL_TOKEN=...
+CONF
+chmod 0600 /etc/shellwing/krl.conf
+systemctl enable --now shellwing-krl.timer
+```
+
+It runs every minute, so a revocation reaches a server within about that. `sshd` reads the file on each login, so
+nothing is reloaded. The script writes to a temporary name, checks the answer really is a revocation list, and only
+then moves it into place - a server told to read a file it cannot parse refuses every certificate, so a half-written
+file or a proxy's error page would lock everybody out of that machine.
+
+**Nothing is pushed.** The server cannot reach your target servers and does not know they exist: hosts live in each
+person's encrypted records, which the server cannot read, and it holds no credential for any of them. Giving it one
+would mean a server that can write to every machine in the fleet, which is a larger thing to lose than the CA key.
+So a revocation is as fast as the fetch, and the lifetime bounds the worst case either way.
+
+`ssh-keygen -Qf /etc/ssh/shellwing_krl cert.pub` says what the file in place has to say about one certificate, which
+is the way to check a server is really reading what you think it is.
+
+**One authority per environment.** A certificate is good on every server that trusts the CA that signed it, so
+production and staging trusting the same key is one blast radius, not two. `TrustedUserCAKeys` takes a file of several
+keys, so a server can trust more than one authority - but an organization here has a single active CA, so separate
+environments mean separate organizations until it can hold more.
 
 ## Synced data
 

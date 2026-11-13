@@ -247,5 +247,11 @@ func (uc *UC) revokeDevice(ctx context.Context, device *entity.Device) error {
 		return hperrors.Wrap(err)
 	}
 	// Its access token stops now, not when it expires.
-	return hperrors.Wrap(uc.userTokenRepo.Del(ctx, device.UserID, device.ID))
+	if err := uc.userTokenRepo.Del(ctx, device.UserID, device.ID); err != nil {
+		return hperrors.Wrap(err)
+	}
+	// So do the SSH certificates it holds, in every organization. Signing a device out otherwise leaves whoever has
+	// the laptop able to log in to servers until each certificate ends, which is the case this is for.
+	_, err := uc.sshCertRepo.RevokeOfDevice(ctx, uc.db, device.ID, timeNow)
+	return hperrors.Wrap(err)
 }
