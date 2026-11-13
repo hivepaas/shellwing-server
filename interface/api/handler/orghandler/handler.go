@@ -104,6 +104,46 @@ func (h *Handler) sshKRL(ctx *gin.Context) ([]byte, error) {
 	return h.orgUC.SSHKRL(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID)) //nolint:wrapcheck // rendered as it is
 }
 
+// SSHCAKeys returns the organization's trusted certificate authority keys
+// @Summary Returns the organization's SSH certificate authority keys
+// @Description The file sshd's TrustedUserCAKeys names: one line per authority the organization's servers should
+// @Description trust, which is the one signing and any published beside it. Fetch it the way the revocation list is
+// @Description fetched, with the same token - a new authority is published before it signs anything, so a server that
+// @Description keeps this up to date has its key before any certificate carries it.
+// @Tags    Organizations
+// @Produce plain
+// @Id      sshCAKeys
+// @Param   orgID path string true "organization ID"
+// @Success 200
+// @Failure 401 {object} hperrors.ErrorInfo
+// @Failure 404 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /orgs/{orgID}/ssh/ca-keys [get]
+func (h *Handler) SSHCAKeys(ctx *gin.Context) {
+	keys, err := h.sshCAKeys(ctx)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	ctx.Header("Content-Disposition", `attachment; filename="shellwing_ca_keys.pub"`)
+	ctx.Header("Cache-Control", "no-store")
+	ctx.Data(http.StatusOK, "text/plain; charset=utf-8", keys)
+}
+
+func (h *Handler) sshCAKeys(ctx *gin.Context) ([]byte, error) {
+	// A target server has a token and no session; a person on the web app has a session and no token. The token is
+	// checked first so that one presented and wrong is an error rather than a fall back to asking for a session.
+	if token := ctx.GetHeader(headerKRLToken); token != "" {
+		//nolint:wrapcheck // rendered as it is
+		return h.orgUC.SSHCAKeysForToken(h.RequestCtx(ctx), ctx.Param(paramOrgID), token)
+	}
+	auth, err := h.authHandler.GetSyncAuth(ctx)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // rendered as it is
+	}
+	return h.orgUC.SSHCAKeys(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID)) //nolint:wrapcheck // rendered as it is
+}
+
 // CreateSSHKRLToken makes a token for the organization's servers
 // @Summary Makes a token the organization's servers fetch the revocation list with
 // @Description The token is in this answer and nowhere else: only its hash is kept. One made before stops working, so
@@ -196,6 +236,7 @@ func (h *Handler) ListSSHCAs(ctx *gin.Context) {
 // @Failure 403 {object} hperrors.ErrorInfo
 // @Failure 404 {object} hperrors.ErrorInfo
 // @Failure 500 {object} hperrors.ErrorInfo
+// @Param   body body orgdto.CreateSSHCAReq false "Replace the signer rather than publish beside it"
 // @Router  /orgs/{orgID}/ssh/cas [post]
 func (h *Handler) CreateSSHCA(ctx *gin.Context) {
 	auth, err := h.adminAuth(ctx)
@@ -203,12 +244,55 @@ func (h *Handler) CreateSSHCA(ctx *gin.Context) {
 		h.RenderError(ctx, err)
 		return
 	}
-	resp, err := h.orgUC.CreateSSHCA(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID))
+	req := orgdto.NewCreateSSHCAReq()
+	if err = h.ParseAndValidateJSONBody(ctx, req); err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	resp, err := h.orgUC.CreateSSHCA(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID), req)
 	if err != nil {
 		h.RenderError(ctx, err)
 		return
 	}
 	ctx.JSON(http.StatusCreated, resp)
+}
+
+// SSHCAStatus promotes a published certificate authority, or retires it
+// @Summary Promotes or retires a published SSH certificate authority
+// @Description Promoting makes it the one that signs, and the one it replaces stays published so that what it signed
+// @Description keeps working. Retiring stops the servers trusting it and refuses what it signed.
+// @Tags    Organizations
+// @Accept  json
+// @Produce json
+// @Id      sshCAStatus
+// @Param   orgID path string true "Organization ID"
+// @Param   caID  path string true "Certificate authority ID"
+// @Param   body  body orgdto.SetSSHCAStatusReq true "Status"
+// @Success 200 {object} orgdto.SSHCAStatusResp
+// @Failure 400 {object} hperrors.ErrorInfo
+// @Failure 401 {object} hperrors.ErrorInfo
+// @Failure 403 {object} hperrors.ErrorInfo
+// @Failure 404 {object} hperrors.ErrorInfo
+// @Failure 412 {object} hperrors.ErrorInfo
+// @Failure 500 {object} hperrors.ErrorInfo
+// @Router  /orgs/{orgID}/ssh/cas/{caID}/status [put]
+func (h *Handler) SSHCAStatus(ctx *gin.Context) {
+	auth, err := h.adminAuth(ctx)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	req := orgdto.NewSetSSHCAStatusReq()
+	if err = h.ParseAndValidateJSONBody(ctx, req); err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	resp, err := h.orgUC.SSHCAStatus(h.RequestCtx(ctx), auth, ctx.Param(paramOrgID), ctx.Param(paramCAID), req)
+	if err != nil {
+		h.RenderError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, resp)
 }
 
 // DeleteSSHCA deletes a retired certificate authority

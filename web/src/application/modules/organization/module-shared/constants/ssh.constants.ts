@@ -53,8 +53,14 @@ export const SSH_CERT_EXTENSIONS = [
 /** What an organization gets until it says otherwise: a terminal, and nothing that reaches past the server. */
 export const SSH_CERT_EXTENSIONS_DEFAULT: readonly string[] = ["permit-pty"];
 
-/** Where a target server keeps the CA's public key, as the guide names it. */
-export const SSH_CA_PUBLIC_KEY_PATH = "/etc/ssh/shellwing_ca.pub";
+/**
+ * Where a target server keeps the authority keys it trusts, as the guide names it.
+ *
+ * Plural, and fetched rather than copied: an organization may have more than one authority trusted at a time, which is
+ * what rotating one needs. A new authority is published before anything is signed with it, so a server that keeps this
+ * file up to date has the key before any certificate carries it.
+ */
+export const SSH_CA_PUBLIC_KEY_PATH = "/etc/ssh/shellwing_ca_keys.pub";
 
 /** The line for a target server's sshd_config. */
 export const SSHD_TRUSTED_USER_CA_KEYS_LINE = `TrustedUserCAKeys ${SSH_CA_PUBLIC_KEY_PATH}`;
@@ -69,3 +75,19 @@ export const SSHD_REVOKED_KEYS_LINE = `RevokedKeys ${SSH_KRL_PATH}`;
 export function sshKrlApiPath(orgId: string): string {
     return `/api/orgs/${orgId}/ssh/krl`;
 }
+
+/** Where the authority keys a server should trust are fetched from, with the same token as the list. */
+export function sshCaKeysApiPath(orgId: string): string {
+    return `/api/orgs/${orgId}/ssh/ca-keys`;
+}
+
+/** The folder in the repository that holds the fetch script and its systemd units. */
+export const SSH_FETCH_DEPLOYMENT_PATH = "deployment/ssh/";
+
+/**
+ * How many authorities an organization may have trusted at once.
+ *
+ * Room for a rotation, and for one left half done. The server is what enforces it (ERR_SSH_CA_TOO_MANY_TRUSTED); this
+ * is only so the button is not offered when it would be refused.
+ */
+export const SSH_MAX_TRUSTED_CAS = 3;

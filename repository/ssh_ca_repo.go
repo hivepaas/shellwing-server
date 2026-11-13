@@ -6,6 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/uptrace/bun"
+
 	"github.com/hivepaas/shellwing-server/base"
 	"github.com/hivepaas/shellwing-server/entity"
 	"github.com/hivepaas/shellwing-server/hperrors"
@@ -22,8 +24,16 @@ type SSHCARepo interface {
 	Get(ctx context.Context, db database.IDB, orgID, id string) (*entity.SSHCA, error)
 	// List returns the organization's CAs, the newest first.
 	List(ctx context.Context, db database.IDB, orgID string) ([]*entity.SSHCA, error)
+	// ListTrusted returns the CAs a target server trusts: the one signing, and any published beside it. Newest first.
+	ListTrusted(ctx context.Context, db database.IDB, orgID string) ([]*entity.SSHCA, error)
 	// RetireActive ends the active CA, if any, and destroys its private key.
 	RetireActive(ctx context.Context, db database.IDB, orgID string, now time.Time) error
+	// SetStatus moves one CA to a status. Retiring it destroys its private key and records when.
+	SetStatus(ctx context.Context, db database.IDB, orgID, id string, status base.SSHCAStatus,
+		now time.Time) error
+	// DemoteActive makes the active CA published, so that another may take over signing. It keeps its private key:
+	// a published authority has not stopped being one, it has only stopped signing.
+	DemoteActive(ctx context.Context, db database.IDB, orgID string) error
 	Delete(ctx context.Context, db database.IDB, orgID, id string) error
 }
 
@@ -80,6 +90,45 @@ func (repo *sshCARepo) RetireActive(ctx context.Context, db database.IDB, orgID 
 		Set("status = ?", base.SSHCAStatusRetired).
 		Set("private_key = NULL").
 		Set("retired_at = ?", now).
+		Where("org_id = ?", orgID).Where("status = ?", base.SSHCAStatusActive).Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *sshCARepo) ListTrusted(ctx context.Context, db database.IDB, orgID string) (
+	[]*entity.SSHCA, error) {
+	cas := []*entity.SSHCA{}
+	err := db.NewSelect().Model(&cas).
+		Where("org_id = ?", orgID).
+		Where("status IN (?)", bun.List([]base.SSHCAStatus{base.SSHCAStatusActive, base.SSHCAStatusPublished})).
+		Order("created_at DESC").Scan(ctx)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return cas, nil
+}
+
+func (repo *sshCARepo) SetStatus(ctx context.Context, db database.IDB, orgID, id string,
+	status base.SSHCAStatus, now time.Time) error {
+	query := db.NewUpdate().Model((*entity.SSHCA)(nil)).
+		Set("status = ?", status).
+		Where("org_id = ?", orgID).Where("id = ?", id)
+	if status == base.SSHCAStatusRetired {
+		// The key goes with the status: a retired authority is one nothing can be signed with again, and the column
+		// is what makes that true rather than a rule somebody has to remember.
+		query = query.Set("private_key = NULL").Set("retired_at = ?", now)
+	}
+	if _, err := query.Exec(ctx); err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *sshCARepo) DemoteActive(ctx context.Context, db database.IDB, orgID string) error {
+	_, err := db.NewUpdate().Model((*entity.SSHCA)(nil)).
+		Set("status = ?", base.SSHCAStatusPublished).
 		Where("org_id = ?", orgID).Where("status = ?", base.SSHCAStatusActive).Exec(ctx)
 	if err != nil {
 		return hperrors.Wrap(err)

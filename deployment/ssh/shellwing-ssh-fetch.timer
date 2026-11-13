@@ -1,0 +1,15 @@
+[Unit]
+Description=Fetch the shellwing SSH authority keys and revocation list every minute
+Documentation=https://github.com/hivepaas/shellwing-server/blob/main/docs/deploying.md
+
+[Timer]
+# How often this runs is how long a revocation takes to reach this server, and how long before a newly published
+# authority can be promoted, so it is frequent: two small requests a minute. AccuracySec keeps systemd from bundling it with other timers and spreading it out.
+OnBootSec=30s
+OnUnitActiveSec=1min
+AccuracySec=5s
+# Spread across a fleet, so that a hundred servers do not all ask in the same second.
+RandomizedDelaySec=10s
+
+[Install]
+WantedBy=timers.target

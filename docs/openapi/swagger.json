@@ -2337,6 +2337,59 @@
         "x-codegen-request-body-name" : "body"
       }
     },
+    "/orgs/{orgID}/ssh/ca-keys" : {
+      "get" : {
+        "description" : "The file sshd's TrustedUserCAKeys names: one line per authority the organization's servers should\ntrust, which is the one signing and any published beside it. Fetch it the way the revocation list is\nfetched, with the same token - a new authority is published before it signs anything, so a server that\nkeeps this up to date has its key before any certificate carries it.",
+        "operationId" : "sshCAKeys",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : { },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "text/plain" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Unauthorized"
+          },
+          "404" : {
+            "content" : {
+              "text/plain" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "text/plain" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Returns the organization's SSH certificate authority keys",
+        "tags" : [ "Organizations" ]
+      }
+    },
     "/orgs/{orgID}/ssh/cas" : {
       "get" : {
         "description" : "Their public keys, for sshd's TrustedUserCAKeys. A retired one signs no more, and is listed until\ndeleted so that servers trusting it can be moved over.",
@@ -2397,6 +2450,17 @@
             "type" : "string"
           }
         } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.CreateSSHCAReq"
+              }
+            }
+          },
+          "description" : "Replace the signer rather than publish beside it",
+          "required" : false
+        },
         "responses" : {
           "201" : {
             "content" : {
@@ -2440,7 +2504,8 @@
           }
         },
         "summary" : "Makes a new SSH certificate authority",
-        "tags" : [ "Organizations" ]
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
       }
     },
     "/orgs/{orgID}/ssh/cas/{caID}" : {
@@ -2518,6 +2583,115 @@
         },
         "summary" : "Deletes a retired SSH certificate authority",
         "tags" : [ "Organizations" ]
+      }
+    },
+    "/orgs/{orgID}/ssh/cas/{caID}/status" : {
+      "put" : {
+        "description" : "Promoting makes it the one that signs, and the one it replaces stays published so that what it signed\nkeeps working. Retiring stops the servers trusting it and refuses what it signed.",
+        "operationId" : "sshCAStatus",
+        "parameters" : [ {
+          "description" : "Organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "description" : "Certificate authority ID",
+          "in" : "path",
+          "name" : "caID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/orgdto.SetSSHCAStatusReq"
+              }
+            }
+          },
+          "description" : "Status",
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.SSHCAStatusResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "400" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Bad Request"
+          },
+          "401" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Unauthorized"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "412" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Precondition Failed"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Promotes or retires a published SSH certificate authority",
+        "tags" : [ "Organizations" ],
+        "x-codegen-request-body-name" : "body"
       }
     },
     "/orgs/{orgID}/ssh/certificates" : {
@@ -7772,9 +7946,9 @@
         "x-enum-varnames" : [ "ResourceTypeAuditLog", "ResourceTypeCapability", "ResourceTypeCloudStorage", "ResourceTypeEmail", "ResourceTypeIMService", "ResourceTypeKeyAuth", "ResourceTypeLicense", "ResourceTypeSSHCA", "ResourceTypeSSHCert", "ResourceTypeOrgMember", "ResourceTypeOrgGroup", "ResourceTypeUserIdentity", "ResourceTypeCollection", "ResourceTypeOrganization", "ResourceTypeModule", "ResourceTypeNotification", "ResourceTypeOAuth", "ResourceTypeSetting", "ResourceTypeSysError", "ResourceTypeTask", "ResourceTypeUser" ]
       },
       "base.SSHCAStatus" : {
-        "enum" : [ "active", "retired" ],
+        "enum" : [ "active", "published", "retired" ],
         "type" : "string",
-        "x-enum-varnames" : [ "SSHCAStatusActive", "SSHCAStatusRetired" ]
+        "x-enum-varnames" : [ "SSHCAStatusActive", "SSHCAStatusPublished", "SSHCAStatusRetired" ]
       },
       "base.SettingStatus" : {
         "enum" : [ "active", "pending", "disabled", "expired", "missing" ],
@@ -8719,6 +8893,16 @@
         "required" : [ "data", "meta" ],
         "type" : "object"
       },
+      "orgdto.CreateSSHCAReq" : {
+        "properties" : {
+          "replace" : {
+            "description" : "Replace makes the new authority the one that signs at once, retires the one it replaces, and refuses every\ncertificate that one signed.\n\nOff, which is the default, the new authority is published instead: the target servers are given its public key\nbut nothing is signed with it, and the authority that signs carries on until an admin promotes the new one.\nThat is what rotating an authority is, and it locks nobody out.\n\nOn is for the case rotating is not for - a key that should not be trusted another minute. It refuses what that\nkey signed, and it also refuses everybody whose server has not picked up the new key yet, because nothing they\nhold is signed by anything their server trusts.",
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "replace" ],
+        "type" : "object"
+      },
       "orgdto.CreateSSHCAResp" : {
         "properties" : {
           "data" : {
@@ -9095,6 +9279,24 @@
         "required" : [ "createdAt", "id", "keyProvider", "publicKey", "retiredAt", "status" ],
         "type" : "object"
       },
+      "orgdto.SSHCAStatusResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/orgdto.SSHCAResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
       "orgdto.SSHCertificateResp" : {
         "properties" : {
           "certificate" : {
@@ -9159,6 +9361,19 @@
           }
         },
         "required" : [ "userIds" ],
+        "type" : "object"
+      },
+      "orgdto.SetSSHCAStatusReq" : {
+        "properties" : {
+          "status" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/base.SSHCAStatus"
+            } ],
+            "description" : "Status is \"active\" to sign with it from now on, or \"retired\" to stop trusting it and refuse what it signed.\n\"published\" is not set here: an authority becomes published by being made, or by being replaced as the signer.",
+            "type" : "object"
+          }
+        },
+        "required" : [ "status" ],
         "type" : "object"
       },
       "orgdto.SetSSHPrincipalsReq" : {

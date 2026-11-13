@@ -8,7 +8,13 @@ import { KeyRound, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { SshKrlCommands } from "~/organization/data/commands";
 import { PublicKeyBlock } from "~/organization/module-shared/components";
-import { SSHD_REVOKED_KEYS_LINE, SSH_KRL_PATH, sshKrlApiPath } from "~/organization/module-shared/constants";
+import {
+    SSHD_REVOKED_KEYS_LINE,
+    SSH_FETCH_DEPLOYMENT_PATH,
+    SSH_KRL_PATH,
+    sshCaKeysApiPath,
+    sshKrlApiPath,
+} from "~/organization/module-shared/constants";
 
 import { ContentBlock, InfoBlock, PopConfirm } from "@application/shared/components";
 
@@ -136,9 +142,12 @@ export function SshKrlSection({ orgId, tokenCreatedAt }: Props) {
                     <span>
                         Each server then fetches <code className="font-mono text-xs">{sshKrlApiPath(orgId)}</code> with
                         that token in the <code className="font-mono text-xs">X-Shellwing-KRL-Token</code> header, and
-                        writes it to <code className="font-mono text-xs">{SSH_KRL_PATH}</code>. A script and a systemd
-                        timer that do it are in <code className="font-mono text-xs">deployment/krl/</code>; sshd reads
-                        the file on each login, so nothing needs reloading.
+                        writes it to <code className="font-mono text-xs">{SSH_KRL_PATH}</code>. The same token fetches{" "}
+                        <code className="font-mono text-xs">{sshCaKeysApiPath(orgId)}</code>, the authority keys the
+                        server trusts, which is what lets an authority be rotated without editing every server. A script
+                        and a systemd timer that do both are in{" "}
+                        <code className="font-mono text-xs">{SSH_FETCH_DEPLOYMENT_PATH}</code>; sshd reads both files on
+                        each login, so nothing needs reloading.
                     </span>
                     <span>
                         Nothing is pushed to your servers - this server cannot reach them and does not know they exist -

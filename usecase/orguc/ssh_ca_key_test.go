@@ -62,7 +62,7 @@ func TestAnAuthorityWhoseKeyIsInTheEngineSignsCertificates(t *testing.T) {
 		&orgdto.SetSSHPrincipalsReq{Principals: []string{"deploy"}})
 	require.NoError(t, err)
 
-	created, err := e.uc.CreateSSHCA(ctx, admin, e.org)
+	created, err := e.uc.CreateSSHCA(ctx, admin, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	assert.Equal(t, base.KMSProviderVaultTransit, created.Data.KeyProvider)
 	assert.True(t, strings.HasPrefix(created.Data.PublicKey, "ssh-ed25519 "),
@@ -99,7 +99,7 @@ func TestAnAuthorityKeepsItsKeyHereByDefault(t *testing.T) {
 	useCAConfig(t, config.Config{})
 	admin := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
 
-	created, err := e.uc.CreateSSHCA(ctx, admin, e.org)
+	created, err := e.uc.CreateSSHCA(ctx, admin, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	assert.Equal(t, base.KMSProviderLocal, created.Data.KeyProvider)
 
@@ -124,7 +124,7 @@ func TestAnEngineThatCannotBeReachedMakesNoAuthority(t *testing.T) {
 	})
 	admin := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
 
-	_, err := e.uc.CreateSSHCA(ctx, admin, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, admin, e.org, &orgdto.CreateSSHCAReq{})
 	require.ErrorIs(t, err, hperrors.ErrSSHCAKeyUnreachable)
 
 	ca, err := repository.NewSSHCARepo().GetActive(ctx, e.db, e.org)

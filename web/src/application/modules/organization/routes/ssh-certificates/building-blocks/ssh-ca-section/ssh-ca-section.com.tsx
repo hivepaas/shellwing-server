@@ -4,7 +4,7 @@ import { Skeleton } from "@components/ui/skeleton";
 import { dashedBorderBox } from "@lib/styles";
 import { cn } from "@lib/utils";
 import { format } from "date-fns";
-import { Plus, RefreshCw, Trash2Icon } from "lucide-react";
+import { ArrowUpCircle, CircleSlash, Plus, RefreshCw, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { SshCaCommands } from "~/organization/data/commands";
 import { SshCaQueries } from "~/organization/data/queries";
@@ -15,7 +15,10 @@ import {
     SSHD_REVOKED_KEYS_LINE,
     SSHD_TRUSTED_USER_CA_KEYS_LINE,
     SSH_CA_PUBLIC_KEY_PATH,
+    SSH_FETCH_DEPLOYMENT_PATH,
     SSH_KRL_PATH,
+    SSH_MAX_TRUSTED_CAS,
+    sshCaKeysApiPath,
     sshKrlApiPath,
 } from "~/organization/module-shared/constants";
 
@@ -31,64 +34,94 @@ function formatDate(date: Date) {
 function TrustHowTo({ orgId }: { orgId: string }) {
     return (
         <div className="flex flex-col gap-3 text-sm">
-            <span className="font-medium">Have each server trust it</span>
+            <span className="font-medium">Have each server trust this organization</span>
             <ol className="ml-5 flex list-decimal flex-col gap-3">
-                <li>
-                    Save the public key above on the server as{" "}
-                    <code className="font-mono text-xs">{SSH_CA_PUBLIC_KEY_PATH}</code>.
-                </li>
                 <li className="flex flex-col gap-2">
                     <span>
-                        Add this line to <code className="font-mono text-xs">/etc/ssh/sshd_config</code>:
+                        Add both lines to <code className="font-mono text-xs">/etc/ssh/sshd_config</code>:
                     </span>
                     <PublicKeyBlock
-                        value={SSHD_TRUSTED_USER_CA_KEYS_LINE}
-                        label="Copy the line"
-                    />
-                </li>
-                <li className="flex flex-col gap-2">
-                    <span>Add this line as well, so the server refuses a certificate that has been revoked:</span>
-                    <PublicKeyBlock
-                        value={SSHD_REVOKED_KEYS_LINE}
-                        label="Copy the line"
+                        value={`${SSHD_TRUSTED_USER_CA_KEYS_LINE}\n${SSHD_REVOKED_KEYS_LINE}`}
+                        label="Copy both lines"
                     />
                     <span className="text-muted-foreground">
-                        Then keep <code className="font-mono text-xs">{SSH_KRL_PATH}</code> up to date from{" "}
-                        <code className="font-mono text-xs">{sshKrlApiPath(orgId)}</code>, the way the rest of the
-                        server&apos;s configuration is. Write it to a temporary name and move it into place: a server
-                        told to read the file and unable to refuses every certificate.
+                        The first says whose certificates the server accepts, the second which ones it refuses before
+                        they expire. They are useless apart: with the keys and no list a server takes certificates that
+                        were revoked, and with the list and no keys it takes none at all.
+                    </span>
+                </li>
+                <li className="flex flex-col gap-2">
+                    <span>Keep both files up to date from this server:</span>
+                    <PublicKeyBlock
+                        value={`${sshCaKeysApiPath(orgId)}\n${sshKrlApiPath(orgId)}`}
+                        label="Copy both paths"
+                    />
+                    <span className="text-muted-foreground">
+                        Into <code className="font-mono text-xs">{SSH_CA_PUBLIC_KEY_PATH}</code> and{" "}
+                        <code className="font-mono text-xs">{SSH_KRL_PATH}</code>, with the token below. A script and a
+                        systemd timer that do it are in{" "}
+                        <code className="font-mono text-xs">{SSH_FETCH_DEPLOYMENT_PATH}</code>. Fetching the keys rather
+                        than copying them once is what lets an authority be rotated without locking anybody out.
                     </span>
                 </li>
                 <li>
                     Reload sshd: <code className="font-mono text-xs">{RELOAD_SSHD}</code>, or{" "}
-                    <code className="font-mono text-xs">{RELOAD_SSH}</code> on Debian and Ubuntu.
+                    <code className="font-mono text-xs">{RELOAD_SSH}</code> on Debian and Ubuntu. After that nothing
+                    needs reloading: sshd reads both files on every login.
                 </li>
             </ol>
             <p className="text-muted-foreground">
                 A member then logs in with a certificate this server signs for them, as one of the accounts granted to
                 them below. sshd logs the person and the device of each login. Taking an account away revokes the
-                certificates they hold, which reaches this server once it has fetched the list again.
+                certificates they hold, which reaches a server once it has fetched the list again.
             </p>
         </div>
     );
 }
 
-function ActiveCa({ orgId, ca, onReplace }: { orgId: string; ca: SshCa; onReplace: () => void }) {
+function ActiveCa({
+    orgId,
+    ca,
+    canPublish,
+    isPublishing,
+    onPublish,
+    onReplace,
+}: {
+    orgId: string;
+    ca: SshCa;
+    canPublish: boolean;
+    isPublishing: boolean;
+    onPublish: () => void;
+    onReplace: () => void;
+}) {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-sm">
-                    <Badge className={cn(statusClassName("success"))}>Active</Badge>
+                    <Badge className={cn(statusClassName("success"))}>Signing</Badge>
                     <span className="text-muted-foreground">Created {formatDate(ca.createdAt)}</span>
                 </div>
-                <Button
-                    type="button"
-                    variant="destructiveOutline"
-                    onClick={onReplace}
-                >
-                    <RefreshCw className="size-4" />
-                    Replace
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                    {canPublish && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            isLoading={isPublishing}
+                            onClick={onPublish}
+                        >
+                            {!isPublishing && <Plus className="size-4" />}
+                            Publish a new one
+                        </Button>
+                    )}
+                    <Button
+                        type="button"
+                        variant="destructiveOutline"
+                        onClick={onReplace}
+                    >
+                        <RefreshCw className="size-4" />
+                        Replace now
+                    </Button>
+                </div>
             </div>
             <div className="flex flex-col gap-2">
                 <span className="text-sm font-medium">Public key</span>
@@ -99,6 +132,74 @@ function ActiveCa({ orgId, ca, onReplace }: { orgId: string; ca: SshCa; onReplac
             </div>
             <TrustHowTo orgId={orgId} />
         </div>
+    );
+}
+
+function PublishedCa({ orgId, ca }: { orgId: string; ca: SshCa }) {
+    const { mutate: setStatus, isPending } = SshCaCommands.useSetStatus({
+        onSuccess: response => {
+            toast.success(
+                response.data.status === ESshCaStatus.Active
+                    ? "That authority signs from now on. The one it replaced stays published, so certificates already held keep working."
+                    : "Certificate authority retired. Its certificates are now refused.",
+            );
+        },
+    });
+
+    return (
+        <li className="flex flex-col gap-2 rounded-lg border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge className={cn(statusClassName("waiting"))}>Published</Badge>
+                    <span className="text-muted-foreground">Created {formatDate(ca.createdAt)}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <PopConfirm
+                        title="Sign with this authority from now on?"
+                        description="Every server has to have its key first, or anybody whose server does not will be refused. The authority it replaces stays published, so certificates already held keep working until they expire."
+                        confirmText="Sign with it"
+                        align="end"
+                        onConfirm={() => {
+                            setStatus({ orgId, caId: ca.id, status: ESshCaStatus.Active });
+                        }}
+                    >
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            isLoading={isPending}
+                        >
+                            {!isPending && <ArrowUpCircle className="size-4" />}
+                            Sign with it
+                        </Button>
+                    </PopConfirm>
+                    <PopConfirm
+                        title="Retire this certificate authority?"
+                        description="Your servers stop trusting it and every certificate it signed is refused. Do this once nothing it signed is still valid, which is at most one certificate lifetime after it stopped signing."
+                        confirmText="Retire"
+                        variant="destructive"
+                        align="end"
+                        onConfirm={() => {
+                            setStatus({ orgId, caId: ca.id, status: ESshCaStatus.Retired });
+                        }}
+                    >
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            isLoading={isPending}
+                        >
+                            {!isPending && <CircleSlash className="size-4" />}
+                            Retire
+                        </Button>
+                    </PopConfirm>
+                </div>
+            </div>
+            <PublicKeyBlock
+                value={ca.publicKey}
+                label="Copy the public key"
+            />
+        </li>
     );
 }
 
@@ -159,7 +260,10 @@ export function SshCaSection({ orgId }: Props) {
 
     const cas = data?.data ?? [];
     const active = cas.find(ca => ca.status === ESshCaStatus.Active) ?? null;
-    const retired = cas.filter(ca => ca.status !== ESshCaStatus.Active);
+    const published = cas.filter(ca => ca.status === ESshCaStatus.Published);
+    const retired = cas.filter(ca => ca.status === ESshCaStatus.Retired);
+    // The bound counts every authority the servers trust, which is the one signing and the published ones.
+    const canPublish = active !== null && 1 + published.length < SSH_MAX_TRUSTED_CAS;
 
     return (
         <ContentBlock label="Certificate authority">
@@ -190,7 +294,7 @@ export function SshCaSection({ orgId }: Props) {
                     <div className={cn(dashedBorderBox, "flex flex-col items-start gap-3")}>
                         <span>
                             There is no certificate authority yet, so nobody can get a certificate. Make one, then have
-                            each server trust its public key.
+                            each server trust this organization.
                         </span>
                         <Button
                             type="button"
@@ -209,10 +313,37 @@ export function SshCaSection({ orgId }: Props) {
                     <ActiveCa
                         orgId={orgId}
                         ca={active}
+                        canPublish={canPublish}
+                        isPublishing={isCreating}
+                        onPublish={() => {
+                            createCa({ orgId });
+                        }}
                         onReplace={() => {
                             replaceDialog.actions.open(orgId);
                         }}
                     />
+                )}
+
+                {published.length > 0 && (
+                    <div className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-1">
+                            <span className="text-sm font-medium">Published</span>
+                            <span className="text-sm text-muted-foreground">
+                                Your servers trust these, but nothing is signed with them. That is how an authority is
+                                rotated: the servers pick up the new key first, then it starts signing, and the one it
+                                replaces stays here until the certificates it signed have expired.
+                            </span>
+                        </div>
+                        <ul className="flex flex-col gap-3">
+                            {published.map(ca => (
+                                <PublishedCa
+                                    key={ca.id}
+                                    orgId={orgId}
+                                    ca={ca}
+                                />
+                            ))}
+                        </ul>
+                    </div>
                 )}
 
                 {retired.length > 0 && (
@@ -220,8 +351,9 @@ export function SshCaSection({ orgId }: Props) {
                         <div className="flex flex-col gap-1">
                             <span className="text-sm font-medium">Retired</span>
                             <span className="text-sm text-muted-foreground">
-                                They sign no more, and their private keys are gone. Keep one on a server only until the
-                                certificates it signed have ended, then remove it there and delete it here.
+                                Not trusted and not signing: their private keys are gone and what they signed is
+                                refused. Listed so you can see what was removed; delete one here once no server has it
+                                any more.
                             </span>
                         </div>
                         <ul className="flex flex-col gap-3">
