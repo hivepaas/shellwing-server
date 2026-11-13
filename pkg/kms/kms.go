@@ -62,6 +62,10 @@ var (
 	// was asked for - which is a service behaving unlike itself rather than
 	// refusing, and is worth telling apart from a refusal.
 	ErrServiceAnswer = errors.New("KMS returned an answer that cannot be used")
+	// ErrKeyMissing is a key the service does not have. It is its own error
+	// because the fix is the operator's and is not "try again": either create the
+	// key, or correct the name.
+	ErrKeyMissing = errors.New("the KMS has no such key")
 )
 
 // Wrapper wraps and unwraps the data encryption key. A call reaches a service

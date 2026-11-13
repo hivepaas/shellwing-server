@@ -117,7 +117,57 @@ func vaultTransport(caCertFile string) (http.RoundTripper, error) {
 
 func (w *vaultTransit) Name() string { return ProviderVaultTransit }
 
+// requireKey refuses a key the engine does not have.
+//
+// transit's encrypt endpoint makes a key it does not know rather than refusing
+// (checked against Vault 1.20: encrypting to an unknown name creates an
+// aes256-gcm96 key and succeeds). A mistyped key name would therefore get a
+// brand new key, quietly, and the key holding every stored secret would not be
+// the one the operator named - with none of the rotation, policy or backup they
+// had arranged for that one. Nothing later would notice, because the new key
+// unwraps its own ciphertext perfectly well.
+//
+// Before wrapping only: unwrapping against the wrong key fails by itself, and
+// sign refuses an unknown key on its own ("signing key not found").
+func (w *vaultTransit) requireKey(ctx context.Context) error {
+	url := fmt.Sprintf("%s/v1/%s/keys/%s", w.address, w.mount, w.key)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to build the %s request: %w", ProviderVaultTransit, err)
+	}
+	req.Header.Set("X-Vault-Token", w.token)
+	if w.namespace != "" {
+		req.Header.Set("X-Vault-Namespace", w.namespace)
+	}
+
+	resp, err := w.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot reach %s to look for the key: %w", ProviderVaultTransit, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("%w: %s has no key %q under %s - create it, or correct the name",
+			ErrKeyMissing, ProviderVaultTransit, w.key, w.mount)
+	case http.StatusForbidden:
+		// Both a token that may not read the key and a token that is not a token
+		// land here, so the message carries what the engine said as well as the
+		// capability to look at.
+		return fmt.Errorf("%w: the token may not read %s/keys/%s, which is how a key that is "+
+			"missing is told from a name that is mistyped: %s",
+			ErrServiceRefused, w.mount, w.key, vaultError(resp))
+	}
+	return fmt.Errorf("%w: %s would not say whether the key %q exists: %s",
+		ErrServiceRefused, ProviderVaultTransit, w.key, vaultError(resp))
+}
+
 func (w *vaultTransit) Wrap(ctx context.Context, key []byte) (string, error) {
+	if err := w.requireKey(ctx); err != nil {
+		return "", err
+	}
 	var answer struct {
 		Data struct {
 			Ciphertext string `json:"ciphertext"`
