@@ -6,6 +6,7 @@ import type {
     SshCas_CreateOne_Req,
     SshCas_DeleteOne_Req,
     SshCas_FindMany_Req,
+    SshCas_SetStatus_Req,
 } from "~/organization/api/services/ssh-ca-services";
 
 import { useApiErrorNotifications } from "@infrastructure/api";
@@ -46,6 +47,21 @@ function createHook() {
                         Err: error => {
                             notifyError({
                                 message: "Failed to create SSH certificate authority",
+                                error,
+                            });
+
+                            throw error;
+                        },
+                    });
+                },
+                setStatus: async (data: SshCas_SetStatus_Req["data"]) => {
+                    const result = await api.organization.ssh.cas.setStatus({ data });
+
+                    return match(result, {
+                        Ok: _ => _,
+                        Err: error => {
+                            notifyError({
+                                message: "Failed to change the SSH certificate authority",
                                 error,
                             });
 

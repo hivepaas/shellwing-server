@@ -50,6 +50,13 @@ var (
 	// ErrSSHExtensionInvalid is something a certificate cannot be allowed to do, because sshd knows no such
 	// extension. Its param Name is the name.
 	ErrSSHExtensionInvalid = NewErr(ErrArgumentInvalid, "ERR_SSH_EXTENSION_INVALID")
+	// ErrSSHCANotPublished is an authority that cannot be moved: only a published one can start signing or be
+	// retired. Its param Name is the status it is in. The one signing is replaced rather than stood down on its own,
+	// which would leave the organization with nothing that signs, and a retired one does not come back.
+	ErrSSHCANotPublished = NewErr(ErrPreconditionFailed, "ERR_SSH_CA_NOT_PUBLISHED")
+	// ErrSSHCATooManyTrusted refuses publishing another authority beside the ones already trusted. Its param Name is
+	// the bound. Each one trusted is a key that logs in everywhere, so the set is kept small enough to reason about.
+	ErrSSHCATooManyTrusted = NewErr(ErrPreconditionFailed, "ERR_SSH_CA_TOO_MANY_TRUSTED")
 	// ErrSSHCAKeyUnreachable is an authority whose signing key is held by a service this server cannot reach or use:
 	// the service is down, the token is gone, or the key is not what an authority needs. Its param Name is which
 	// service. Nothing is wrong with the authority, so the answer is to fix the service and ask again.

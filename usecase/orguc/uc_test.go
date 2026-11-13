@@ -172,7 +172,7 @@ func TestACertificateNamesWhatAnAdminGranted(t *testing.T) {
 	_, err = e.uc.IssueSSHCertificate(ctx, member, e.org, issueReq(t))
 	require.ErrorIs(t, err, hperrors.ErrSSHCANotSetUp)
 
-	created, err := e.uc.CreateSSHCA(ctx, admin, e.org)
+	created, err := e.uc.CreateSSHCA(ctx, admin, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 
 	resp, err := e.uc.IssueSSHCertificate(ctx, member, e.org, issueReq(t))
@@ -204,7 +204,7 @@ func TestACertificateNamesWhatAnAdminGranted(t *testing.T) {
 func TestAnOwnersOwnCertificateNeedsAGrantToo(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	_, err = e.uc.IssueSSHCertificate(ctx, owner, e.org, issueReq(t))
 	require.ErrorIs(t, err, hperrors.ErrSSHNoPrincipals)
@@ -213,7 +213,7 @@ func TestAnOwnersOwnCertificateNeedsAGrantToo(t *testing.T) {
 func TestOnlyAnActiveMemberGetsOne(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	admin := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, admin, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, admin, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 
 	for _, status := range []base.OrgMemberStatus{base.OrgMemberStatusSuspended, base.OrgMemberStatusRemoved} {
@@ -232,7 +232,7 @@ func TestOnlyAnActiveMemberGetsOne(t *testing.T) {
 func TestOneOrganizationReachesNothingOfAnother(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	ownerA := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	caA, err := e.uc.CreateSSHCA(ctx, ownerA, e.org)
+	caA, err := e.uc.CreateSSHCA(ctx, ownerA, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 
 	orgB := e.addOrg(t)
@@ -241,7 +241,7 @@ func TestOneOrganizationReachesNothingOfAnother(t *testing.T) {
 
 	_, err = e.uc.ListSSHCAs(ctx, ownerB, e.org)
 	require.ErrorIs(t, err, hperrors.ErrNotFound)
-	_, err = e.uc.CreateSSHCA(ctx, ownerB, e.org)
+	_, err = e.uc.CreateSSHCA(ctx, ownerB, e.org, &orgdto.CreateSSHCAReq{})
 	require.ErrorIs(t, err, hperrors.ErrNotFound)
 	_, err = e.uc.DeleteSSHCA(ctx, ownerB, e.org, caA.Data.ID)
 	require.ErrorIs(t, err, hperrors.ErrNotFound)
@@ -263,7 +263,7 @@ func TestAMemberCannotDoWhatAnAdminDoes(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
 
-	_, err := e.uc.CreateSSHCA(ctx, member, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, member, e.org, &orgdto.CreateSSHCAReq{})
 	require.ErrorIs(t, err, hperrors.ErrForbidden)
 	_, err = e.uc.SetSSHPrincipals(ctx, member, e.org, member.UserID(),
 		&orgdto.SetSSHPrincipalsReq{Principals: []string{"root"}})
@@ -277,13 +277,13 @@ func TestAMemberCannotDoWhatAnAdminDoes(t *testing.T) {
 func TestANewCARetiresTheOldAndDestroysItsKey(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	admin := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	first, err := e.uc.CreateSSHCA(ctx, admin, e.org)
+	first, err := e.uc.CreateSSHCA(ctx, admin, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 
 	_, err = e.uc.DeleteSSHCA(ctx, admin, e.org, first.Data.ID)
 	require.ErrorIs(t, err, hperrors.ErrSSHCAActive)
 
-	second, err := e.uc.CreateSSHCA(ctx, admin, e.org)
+	second, err := e.uc.CreateSSHCA(ctx, admin, e.org, &orgdto.CreateSSHCAReq{Replace: true})
 	require.NoError(t, err)
 
 	list, err := e.uc.ListSSHCAs(ctx, admin, e.org)
@@ -314,7 +314,7 @@ func TestTwoNewCAsAtOnceLeaveOneActive(t *testing.T) {
 	var group errgroup.Group
 	for range 8 {
 		group.Go(func() error {
-			_, err := e.uc.CreateSSHCA(ctx, admin, e.org)
+			_, err := e.uc.CreateSSHCA(ctx, admin, e.org, &orgdto.CreateSSHCAReq{Replace: true})
 			return err
 		})
 	}
@@ -335,7 +335,7 @@ func TestTwoNewCAsAtOnceLeaveOneActive(t *testing.T) {
 func TestACertificateNobodyRecordedIsNotHandedOut(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	admin := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, admin, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, admin, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	// Granted by somebody else: an admin's own accounts are never their own to grant.
 	grant(t, e, e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive), admin, "deploy")
@@ -488,7 +488,7 @@ func TestTheLastActiveOwnerStaysOne(t *testing.T) {
 func TestARemovedMemberLosesWhatTheyWereGranted(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	person := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
 	_, err = e.uc.SetSSHPrincipals(ctx, owner, e.org, person.UserID(),
@@ -594,7 +594,7 @@ func certifiedFor(t *testing.T, e *env, who *basedto.Auth) []string {
 func TestAGroupsAccountsAreEachMembers(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
 	grant(t, e, owner, person, "app")
@@ -634,7 +634,7 @@ func TestAnAdminCannotGrantThemselves(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	other := e.addMember(t, e.org, base.OrgRoleAdmin, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 
 	_, err = e.uc.SetSSHPrincipals(ctx, owner, e.org, owner.UserID(),
@@ -664,7 +664,7 @@ func TestOnlySoManyCertificatesAnHour(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	grant(t, e, owner, person, "deploy")
 
@@ -728,7 +728,7 @@ func TestARevokedCertificateIsInTheListOpenSSHReads(t *testing.T) {
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
 	other := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	grant(t, e, owner, person, "deploy")
 	grant(t, e, owner, other, "deploy")
@@ -751,7 +751,7 @@ func TestARevokedCertificateIsInTheListOpenSSHReads(t *testing.T) {
 func TestWhatRevokesACertificate(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 
 	// Each case gives somebody a certificate, then does the thing, then counts what is left to revoke.
@@ -815,13 +815,13 @@ func TestReplacingTheAuthorityRevokesWhatItSigned(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	grant(t, e, owner, person, "deploy")
 	old, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
 	require.NoError(t, err)
 
-	_, err = e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err = e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{Replace: true})
 	require.NoError(t, err)
 	fresh, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
 	require.NoError(t, err)
@@ -837,7 +837,7 @@ func TestTheListLeavesOutWhatHasEndedAnyway(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	ca, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	ca, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	grant(t, e, owner, person, "deploy")
 	cert, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
@@ -858,7 +858,7 @@ func TestTheListLeavesOutWhatHasEndedAnyway(t *testing.T) {
 func TestTheListIsForTheOrganizationsOwnMembers(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 
 	member := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
@@ -874,7 +874,7 @@ func TestADisabledAccountKeepsNoCertificateInAnyOrganization(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	grant(t, e, owner, person, "deploy")
 	here, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
@@ -887,7 +887,7 @@ func TestADisabledAccountKeepsNoCertificateInAnyOrganization(t *testing.T) {
 		OrgID: otherOrg, UserID: person.UserID(), Role: base.OrgRoleMember, Status: base.OrgMemberStatusActive,
 	}).Exec(ctx)
 	require.NoError(t, err)
-	_, err = e.uc.CreateSSHCA(ctx, otherOwner, otherOrg)
+	_, err = e.uc.CreateSSHCA(ctx, otherOwner, otherOrg, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	_, err = e.uc.SetSSHPrincipals(ctx, otherOwner, otherOrg, person.UserID(),
 		&orgdto.SetSSHPrincipalsReq{Principals: []string{"deploy"}})
@@ -912,7 +912,7 @@ func TestWhatACertificateIsAllowedToDo(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	grant(t, e, owner, person, "deploy")
 
@@ -965,7 +965,7 @@ func TestChangingWhatCertificatesMayDoRevokesTheOnesHeld(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	grant(t, e, owner, person, "deploy")
 	forwarding := []string{sshca.ExtensionPermitPTY, sshca.ExtensionPermitPortForwarding}
@@ -1017,7 +1017,7 @@ func TestAServerFetchesTheListWithTheOrganizationsToken(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	grant(t, e, owner, person, "deploy")
 	cert, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
@@ -1089,7 +1089,7 @@ func TestARevokedDeviceKeepsNoCertificate(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	grant(t, e, owner, person, "deploy")
 	cert, err := e.uc.IssueSSHCertificate(ctx, person, e.org, issueReq(t))
@@ -1170,7 +1170,7 @@ func TestAGroupHoldsOnlyItsOrganizationsMembers(t *testing.T) {
 func TestARemovedMemberLeavesEveryGroup(t *testing.T) {
 	e, ctx := newEnv(t), context.Background()
 	owner := e.addMember(t, e.org, base.OrgRoleOwner, base.OrgMemberStatusActive)
-	_, err := e.uc.CreateSSHCA(ctx, owner, e.org)
+	_, err := e.uc.CreateSSHCA(ctx, owner, e.org, &orgdto.CreateSSHCAReq{})
 	require.NoError(t, err)
 	person := e.addMember(t, e.org, base.OrgRoleMember, base.OrgMemberStatusActive)
 	// Somebody other than the owner stays behind: an admin cannot put themselves in a group that grants accounts.

@@ -113,6 +113,54 @@ type DeleteSSHCAResp struct {
 	Meta *basedto.Meta `json:"meta"`
 }
 
+// CreateSSHCAReq makes a new certificate authority.
+//
+// The body may be left out, which is Replace off.
+type CreateSSHCAReq struct {
+	// Replace makes the new authority the one that signs at once, retires the one it replaces, and refuses every
+	// certificate that one signed.
+	//
+	// Off, which is the default, the new authority is published instead: the target servers are given its public key
+	// but nothing is signed with it, and the authority that signs carries on until an admin promotes the new one.
+	// That is what rotating an authority is, and it locks nobody out.
+	//
+	// On is for the case rotating is not for - a key that should not be trusted another minute. It refuses what that
+	// key signed, and it also refuses everybody whose server has not picked up the new key yet, because nothing they
+	// hold is signed by anything their server trusts.
+	Replace bool `json:"replace"`
+}
+
+func NewCreateSSHCAReq() *CreateSSHCAReq {
+	return &CreateSSHCAReq{}
+}
+
+// Validate implements interface basedto.ReqValidator
+func (req *CreateSSHCAReq) Validate() hperrors.ValidationErrors {
+	return nil
+}
+
+// SetSSHCAStatusReq moves a published authority: it starts signing, or stops being trusted.
+type SetSSHCAStatusReq struct {
+	// Status is "active" to sign with it from now on, or "retired" to stop trusting it and refuse what it signed.
+	// "published" is not set here: an authority becomes published by being made, or by being replaced as the signer.
+	Status base.SSHCAStatus `json:"status"`
+}
+
+func NewSetSSHCAStatusReq() *SetSSHCAStatusReq {
+	return &SetSSHCAStatusReq{}
+}
+
+// Validate implements interface basedto.ReqValidator
+func (req *SetSSHCAStatusReq) Validate() hperrors.ValidationErrors {
+	return hperrors.NewValidationErrors(vld.Validate(basedto.ValidateStrIn(&req.Status, true,
+		[]base.SSHCAStatus{base.SSHCAStatusActive, base.SSHCAStatusRetired}, "status")...))
+}
+
+type SSHCAStatusResp struct {
+	Meta *basedto.Meta `json:"meta"`
+	Data *SSHCAResp    `json:"data"`
+}
+
 // UpdateSSHSettingsReq sets how long the organization's certificates last, and what they are allowed to do.
 //
 // Both fields are pointers, so that a caller changes one setting without having to send the other back. An empty list

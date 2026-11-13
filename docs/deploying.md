@@ -156,12 +156,16 @@ worth nothing on a server whose file does not list it:
 
 ```
 # /etc/ssh/sshd_config
-TrustedUserCAKeys /etc/ssh/shellwing_ca.pub
+TrustedUserCAKeys /etc/ssh/shellwing_ca_keys.pub
 AuthorizedPrincipalsFile /etc/ssh/principals/%u
 ```
 
 `/etc/ssh/principals/deploy` then holds the principals that may become the `deploy` account, one per line. Keep these
 files with the server's configuration, not from this server: the point is that the two have to agree.
+
+**Fetch the authority keys rather than copying them.** `GET /api/orgs/{org}/ssh/ca-keys` returns that file: one line
+per authority the organization's servers should trust, which is the one signing and any published beside it. Keeping
+it up to date is what makes rotating an authority possible at all - see below.
 
 **Read the revocation list.** This is what makes taking access away take effect before a certificate ends. The server
 keeps a list per organization and `sshd` refuses everything in it:
@@ -187,25 +191,30 @@ over gives up a list of random serial numbers and the public keys already sittin
 A member may also fetch the list with their own session, as they may fetch the CA's public key - handy for a look, and
 for a configuration-management run that already holds an operator's credentials.
 
-**Running the fetch.** [`deployment/krl/`](../deployment/krl/) holds a script and a systemd timer that do it:
+**Running the fetch.** [`deployment/ssh/`](../deployment/ssh/) holds a script and a systemd timer that fetch both
+files with the one token:
 
 ```sh
-install -m 0755 shellwing-krl-fetch.sh /usr/local/bin/
-install -m 0644 shellwing-krl.service shellwing-krl.timer /etc/systemd/system/
+install -m 0755 shellwing-ssh-fetch.sh /usr/local/bin/
+install -m 0644 shellwing-ssh-fetch.service shellwing-ssh-fetch.timer /etc/systemd/system/
 install -d -m 0700 /etc/shellwing
-cat > /etc/shellwing/krl.conf <<'CONF'
+cat > /etc/shellwing/ssh.conf <<'CONF'
 SHELLWING_URL=https://shellwing.example.com
 SHELLWING_ORG=01JC...
-SHELLWING_KRL_TOKEN=...
+SHELLWING_TOKEN=...
 CONF
-chmod 0600 /etc/shellwing/krl.conf
-systemctl enable --now shellwing-krl.timer
+chmod 0600 /etc/shellwing/ssh.conf
+systemctl enable --now shellwing-ssh-fetch.timer
 ```
 
-It runs every minute, so a revocation reaches a server within about that. `sshd` reads the file on each login, so
-nothing is reloaded. The script writes to a temporary name, checks the answer really is a revocation list, and only
-then moves it into place - a server told to read a file it cannot parse refuses every certificate, so a half-written
-file or a proxy's error page would lock everybody out of that machine.
+It runs every minute, so a revocation reaches a server within about that, and so does a newly published authority.
+`sshd` reads both files on each login, so nothing is reloaded.
+
+Each file is written to a temporary name, checked to really be that kind of file, and only then moved into place - a
+server told to read a file it cannot parse refuses every certificate, so a half-written file or a proxy's error page
+would lock everybody out of that machine. A failed fetch leaves the file already there alone and the next run tries
+again; the keys are fetched before the list, because a server that has a new authority but not the latest revocations
+is in a better state than one refusing certificates it should accept.
 
 **Nothing is pushed.** The server cannot reach your target servers and does not know they exist: hosts live in each
 person's encrypted records, which the server cannot read, and it holds no credential for any of them. Giving it one
@@ -215,10 +224,35 @@ So a revocation is as fast as the fetch, and the lifetime bounds the worst case 
 `ssh-keygen -Qf /etc/ssh/shellwing_krl cert.pub` says what the file in place has to say about one certificate, which
 is the way to check a server is really reading what you think it is.
 
-**One authority per environment.** A certificate is good on every server that trusts the CA that signed it, so
-production and staging trusting the same key is one blast radius, not two. `TrustedUserCAKeys` takes a file of several
-keys, so a server can trust more than one authority - but an organization here has a single active CA, so separate
-environments mean separate organizations until it can hold more.
+**One authority per environment.** A certificate is good on every server that trusts the authority that signed it, so
+production and staging trusting the same key is one blast radius, not two. Separate environments mean separate
+organizations.
+
+### Rotating an authority
+
+An authority cannot be swapped in one step. Its public key has to reach every server before anything is signed with
+it, or everybody whose server has not been updated is refused - which is why making a new authority **publishes** it
+rather than making it sign:
+
+1. **Make one.** *Administration › SSH Certificates*, or `POST /api/orgs/{org}/ssh/cas`. It is published: the servers
+   are given its key, nothing is signed with it, and the authority that signs carries on. Nobody notices.
+2. **Wait for the servers to have it.** One run of the timer, so about a minute. `ssh-keygen -L -f` on a server's
+   `TrustedUserCAKeys`, or just reading the file, says whether it is there.
+3. **Promote it.** `PUT /api/orgs/{org}/ssh/cas/{id}/status` with `{"status":"active"}`. New certificates carry it from
+   then on. The one it replaces stays published, so the certificates it already signed keep working until they expire
+   - nobody is logged out.
+4. **Retire the old one** once nothing it signed is still valid, which is at most one certificate lifetime later.
+   `{"status":"retired"}` stops the servers trusting it, destroys its private key, and puts what it signed on the
+   revocation list - because a server may still trust the key until its next fetch. `DELETE
+   /api/orgs/{org}/ssh/cas/{id}` then takes it off the list entirely.
+
+An organization may have three authorities trusted at once, which is room for a rotation and a rotation left half
+done. Each one trusted is a key that logs in everywhere, which is why it is not more.
+
+**Replacing instead of rotating.** `POST /api/orgs/{org}/ssh/cas` with `{"replace":true}` does it in one step: the new
+authority signs immediately, the old one is retired, and every certificate it signed is refused. That is for a key
+that should not be trusted another minute. It also refuses everybody whose server has not picked up the new key yet,
+so it is the thing to reach for in an incident and not for a routine change.
 
 ## Synced data
 

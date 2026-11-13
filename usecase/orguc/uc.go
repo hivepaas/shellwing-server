@@ -32,6 +32,8 @@ import (
 const (
 	auditSectionCACreate   = "ca-create"
 	auditSectionCADelete   = "ca-delete"
+	auditSectionCAPromote  = "ca-promote"
+	auditSectionCARetire   = "ca-retire"
 	auditSectionSettings   = "settings"
 	auditSectionPrincipals = "principals"
 	auditSectionKRLToken   = "krl-token"
@@ -205,16 +207,54 @@ func (uc *UC) SSHKRLForToken(ctx context.Context, orgID, token string) ([]byte, 
 	if token == "" {
 		return nil, hperrors.Wrap(hperrors.ErrSSHKRLTokenInvalid)
 	}
+	if err := uc.orgForFetchToken(ctx, orgID, token); err != nil {
+		return nil, err
+	}
+	return uc.writeSSHKRL(ctx, orgID)
+}
+
+// orgForFetchToken checks that the token is the organization's own.
+//
+// The token alone would be enough to find the organization, but then a server configured with one organization's
+// address and another's token would quietly fetch the wrong files. The lookup is by the token's hash, so an equal hash
+// is an equal token and there is nothing to compare in non-constant time.
+func (uc *UC) orgForFetchToken(ctx context.Context, orgID, token string) error {
 	org, err := uc.orgRepo.GetBySSHKRLToken(ctx, uc.db, hashKRLToken(token))
 	if err != nil {
-		return nil, hperrors.Wrap(err)
+		return hperrors.Wrap(err)
 	}
-	// The organization asked for has to be the token's own. The token alone would be enough to find it, but then a
-	// server configured with one organization's address and another's token would quietly fetch the wrong list.
 	if org == nil || org.ID != orgID || org.Status != base.OrgStatusActive {
+		return hperrors.Wrap(hperrors.ErrSSHKRLTokenInvalid)
+	}
+	return nil
+}
+
+// SSHCAKeys writes the organization's TrustedUserCAKeys file for a member's session.
+//
+// For any member, as the revocation list is: it is public keys, and a server's configuration rather than anybody's
+// secret.
+func (uc *UC) SSHCAKeys(ctx context.Context, auth *basedto.Auth, orgID string) ([]byte, error) {
+	if _, _, err := uc.memberOf(ctx, uc.db, auth, orgID); err != nil {
+		return nil, err
+	}
+	return uc.writeSSHCAKeys(ctx, orgID)
+}
+
+// SSHCAKeysForToken writes it for a target server fetching it with the organization's token - the same token the
+// revocation list is fetched with, because the two files go to the same place and are useless apart: a server that
+// has the keys but not the list takes certificates that were revoked, and one with the list but not the keys takes
+// none at all.
+func (uc *UC) SSHCAKeysForToken(ctx context.Context, orgID, token string) ([]byte, error) {
+	if err := uc.limitKRLFetches(ctx); err != nil {
+		return nil, err
+	}
+	if token == "" {
 		return nil, hperrors.Wrap(hperrors.ErrSSHKRLTokenInvalid)
 	}
-	return uc.writeSSHKRL(ctx, org.ID)
+	if err := uc.orgForFetchToken(ctx, orgID, token); err != nil {
+		return nil, err
+	}
+	return uc.writeSSHCAKeys(ctx, orgID)
 }
 
 // CreateSSHKRLToken makes the organization a new token for its servers to fetch the list with, and returns it. It is
@@ -316,48 +356,96 @@ func (uc *UC) writeSSHKRL(ctx context.Context, orgID string) ([]byte, error) {
 	return krl, nil
 }
 
-// CreateSSHCA makes a new active CA. One before it is retired and its private key destroyed: certificates it signed
-// still work until they expire, on servers that still trust it.
-func (uc *UC) CreateSSHCA(ctx context.Context, auth *basedto.Auth, orgID string) (*orgdto.CreateSSHCAResp, error) {
+// CreateSSHCA makes a new certificate authority, published or signing.
+//
+// Published is the default and is what rotating an authority means: the target servers are given the new public key,
+// nothing is signed with it yet, and the one signing carries on. An admin promotes it once the servers have it - see
+// SSHCAStatus. Signing straight away would refuse everybody whose server had not been updated.
+//
+// Replace is the other case: the key should not be trusted another minute. The new authority signs at once, the one
+// it replaces is retired with its private key destroyed, and every certificate that one signed is refused.
+func (uc *UC) CreateSSHCA(ctx context.Context, auth *basedto.Auth, orgID string,
+	req *orgdto.CreateSSHCAReq) (*orgdto.CreateSSHCAResp, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	// Asked before the key is made, although the transaction asks again and that answer is the one that counts: a key
+	// made in a service and then thrown away for a bound that was already reached is litter nobody goes and clears.
+	if !req.Replace {
+		if err := uc.roomForAnotherSSHCA(ctx, uc.db, orgID); err != nil {
+			return nil, err
+		}
+	}
+
 	now := timeutil.NowUTC()
 	ca, err := uc.newCA(ctx, orgID, now)
 	if err != nil {
 		return nil, err
 	}
+	var revoked int64
 	err = transaction.Execute(ctx, uc.db, func(tx database.Tx) error {
 		if err := uc.requireAdmin(ctx, tx, auth, orgID); err != nil {
 			return err
 		}
-		// Two at once: the second waits, and retires the first.
+		// Two at once: the second waits, and sees what the first did.
 		if _, err := uc.orgRepo.LockByID(ctx, tx, orgID); err != nil {
 			return hperrors.Wrap(err)
 		}
-		retiring, err := uc.sshCARepo.GetActive(ctx, tx, orgID)
+		active, err := uc.sshCARepo.GetActive(ctx, tx, orgID)
 		if err != nil {
 			return hperrors.Wrap(err)
 		}
-		if err := uc.sshCARepo.RetireActive(ctx, tx, orgID, now); err != nil {
-			return hperrors.Wrap(err)
-		}
-		// What the retired authority signed is refused from now on. A server that still trusts its public key would
-		// otherwise keep taking those certificates until each ended, which is the opposite of what replacing an
-		// authority is for; the app asks for a new certificate when it next needs one.
-		var revoked int64
-		if retiring != nil {
-			if revoked, err = uc.sshCertRepo.RevokeOfCA(ctx, tx, orgID, retiring.ID, now); err != nil {
+
+		switch {
+		case active == nil:
+			// Nothing signs yet, so this has to: an organization whose only authority is published can issue no
+			// certificates at all, which is not a state anybody asked for.
+			ca.Status = base.SSHCAStatusActive
+		case req.Replace:
+			ca.Status = base.SSHCAStatusActive
+			if err = uc.sshCARepo.RetireActive(ctx, tx, orgID, now); err != nil {
 				return hperrors.Wrap(err)
 			}
+			// What the retired authority signed is refused from now on. A server that still trusts its public key
+			// would otherwise keep taking those certificates until each ended, which is the opposite of what
+			// replacing an authority is for; the app asks for a new certificate when it next needs one.
+			if revoked, err = uc.sshCertRepo.RevokeOfCA(ctx, tx, orgID, active.ID, now); err != nil {
+				return hperrors.Wrap(err)
+			}
+		default:
+			ca.Status = base.SSHCAStatusPublished
+			if err = uc.roomForAnotherSSHCA(ctx, tx, orgID); err != nil {
+				return err
+			}
 		}
-		if err := uc.sshCARepo.Insert(ctx, tx, ca); err != nil {
+
+		if err = uc.sshCARepo.Insert(ctx, tx, ca); err != nil {
 			return hperrors.Wrap(err)
 		}
 		return uc.recordCAChange(ctx, tx, auth, orgID, auditSectionCACreate, ca.ID,
-			auditdetail.New().Set("publicKey", ca.PublicKey).Set("certsRevoked", revoked))
+			auditdetail.New().Set("publicKey", ca.PublicKey).Set("status", string(ca.Status)).
+				Set("certsRevoked", revoked))
 	})
 	if err != nil {
 		return nil, hperrors.Wrap(err)
 	}
 	return &orgdto.CreateSSHCAResp{Data: orgdto.TransformSSHCA(ca)}, nil
+}
+
+// roomForAnotherSSHCA refuses publishing one beside the ones already trusted.
+//
+// Every trusted authority is a key that logs in everywhere, so the set is kept small enough that an admin reading a
+// server's TrustedUserCAKeys can say what each line is for.
+func (uc *UC) roomForAnotherSSHCA(ctx context.Context, db database.IDB, orgID string) error {
+	trusted, err := uc.sshCARepo.ListTrusted(ctx, db, orgID)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	if len(trusted) >= base.MaxTrustedSSHCAs {
+		return hperrors.Wrap(hperrors.ErrSSHCATooManyTrusted).
+			WithParam("Name", strconv.Itoa(base.MaxTrustedSSHCAs))
+	}
+	return nil
 }
 
 // DeleteSSHCA removes a retired CA from the list. The active one signs, and is replaced rather than deleted.
