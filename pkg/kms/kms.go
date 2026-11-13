@@ -66,6 +66,10 @@ var (
 	// because the fix is the operator's and is not "try again": either create the
 	// key, or correct the name.
 	ErrKeyMissing = errors.New("the KMS has no such key")
+	// ErrKeyUnusable is a key that is there but cannot do what is being asked of
+	// it: the wrong kind for signing an SSH certificate, or asked for a signature
+	// over a digest when it only makes pure ones.
+	ErrKeyUnusable = errors.New("the KMS key cannot do that")
 )
 
 // Wrapper wraps and unwraps the data encryption key. A call reaches a service

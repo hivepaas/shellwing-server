@@ -28,7 +28,9 @@ func sign(t *testing.T, ca *sshca.CAKey, principal string) *signed {
 	require.NoError(t, err)
 	key, err := sshca.ParseUserKey(user.PublicKey)
 	require.NoError(t, err)
-	cert, err := sshca.Sign(ca.PrivateKey, &sshca.UserCert{
+	signer, err := sshca.SignerFromPEM(ca.PrivateKey)
+	require.NoError(t, err)
+	cert, err := sshca.Sign(signer, &sshca.UserCert{
 		Key: key, KeyID: "user=alice", Principals: []string{principal}, TTL: time.Hour, Now: time.Now(),
 	})
 	require.NoError(t, err)

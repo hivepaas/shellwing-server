@@ -147,10 +147,56 @@ type Signed struct {
 	ValidBefore time.Time
 }
 
+// SignerFromPEM reads a CA private key this process holds, as GenerateCA returns one.
+//
+// It is the other way of getting a Signer, beside a handle to a key a service holds and never hands over. Both end up
+// as an ssh.Signer, which is why Sign takes one rather than a key: it is the narrowest thing signing needs, and it is
+// the seam that decides whether this process can be made to sign with a key after it has been taken from it.
+func SignerFromPEM(caPrivateKey string) (ssh.Signer, error) {
+	signer, err := ssh.ParsePrivateKey([]byte(caPrivateKey))
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return signer, nil
+}
+
+// PublicKeyLine is the signer's public half, as a line for TrustedUserCAKeys.
+//
+// For a key held elsewhere this is the only way to write it down: there is no private key here to derive it from, and
+// what the service answers with is the public half alone.
+func PublicKeyLine(signer ssh.Signer) string {
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
+}
+
+// Ed25519PublicKeyOf reads the raw public key out of a line PublicKeyLine wrote.
+//
+// It is how a signer for a key held elsewhere is built without asking the service
+// anything: the public half is already written down beside the authority, which
+// is what the target servers were told to trust, so signing costs one call to the
+// service rather than two.
+func Ed25519PublicKeyOf(line string) (ed25519.PublicKey, error) {
+	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strings.TrimSpace(line))) //nolint:dogsled // only the key
+	if err != nil {
+		return nil, hperrors.Wrap(hperrors.ErrSSHPublicKeyInvalid)
+	}
+	crypto, isCrypto := key.(ssh.CryptoPublicKey)
+	if !isCrypto {
+		return nil, hperrors.Wrap(hperrors.ErrSSHPublicKeyInvalid)
+	}
+	public, isEd25519 := crypto.CryptoPublicKey().(ed25519.PublicKey)
+	if !isEd25519 {
+		return nil, hperrors.Wrap(hperrors.ErrSSHPublicKeyInvalid)
+	}
+	return public, nil
+}
+
 // Sign signs a user certificate. A certificate with no principals would be good for every account, so one is refused.
 // What it is allowed to do is its caller's to decide, and only what AllExtensions names can be asked for: an unknown
 // extension would be carried into the certificate and mean nothing to sshd, which is worse than being refused here.
-func Sign(caPrivateKey string, cert *UserCert) (*Signed, error) {
+//
+// The signer may be a key this process holds or one a service holds; signing is the same either way, and nothing below
+// this line knows which it got.
+func Sign(signer ssh.Signer, cert *UserCert) (*Signed, error) {
 	if len(cert.Principals) == 0 {
 		return nil, hperrors.Wrap(hperrors.ErrSSHNoPrincipals)
 	}
@@ -166,10 +212,6 @@ func Sign(caPrivateKey string, cert *UserCert) (*Signed, error) {
 		}
 		// An extension is a name with an empty value: what it allows is in the name.
 		extensions[name] = ""
-	}
-	signer, err := ssh.ParsePrivateKey([]byte(caPrivateKey))
-	if err != nil {
-		return nil, hperrors.Wrap(err)
 	}
 	serial, err := newSerial()
 	if err != nil {

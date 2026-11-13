@@ -60,17 +60,26 @@ type SSHCAResp struct {
 	ID        string           `json:"id"`
 	Status    base.SSHCAStatus `json:"status"`
 	PublicKey string           `json:"publicKey"`
-	CreatedAt time.Time        `json:"createdAt"`
-	RetiredAt time.Time        `json:"retiredAt,omitzero"`
+	// KeyProvider is where the private half is: "local" for one this server holds, or the service holding it. The
+	// key's name and version within that service are the operator's business rather than an admin's, so they are not
+	// here.
+	KeyProvider string    `json:"keyProvider"`
+	CreatedAt   time.Time `json:"createdAt"`
+	RetiredAt   time.Time `json:"retiredAt,omitzero"`
 }
 
 func TransformSSHCA(ca *entity.SSHCA) *SSHCAResp {
+	provider := ca.KeyProvider
+	if provider == "" {
+		provider = base.KMSProviderLocal
+	}
 	return &SSHCAResp{
-		ID:        ca.ID,
-		Status:    ca.Status,
-		PublicKey: ca.PublicKey,
-		CreatedAt: ca.CreatedAt,
-		RetiredAt: ca.RetiredAt,
+		ID:          ca.ID,
+		Status:      ca.Status,
+		PublicKey:   ca.PublicKey,
+		KeyProvider: provider,
+		CreatedAt:   ca.CreatedAt,
+		RetiredAt:   ca.RetiredAt,
 	}
 }
 

@@ -52,6 +52,10 @@ var (
 	// support for. It stops the start: carrying on with the app secret instead
 	// would protect the stored key with something other than what was asked for.
 	ErrKMSProviderUnknown = errors.New("KMS provider is not one this server knows")
+	// ErrSSHCAKeyProviderUnknown is somewhere an SSH authority's signing key
+	// cannot be made. It stops the start rather than being found by the first
+	// admin who tries to make one.
+	ErrSSHCAKeyProviderUnknown = errors.New("SSH CA key provider is not one this server knows")
 )
 
 const (
@@ -127,6 +131,7 @@ type Config struct {
 	Security   Security   `toml:"security"`
 	Sync       Sync       `toml:"sync"`
 	KMS        KMS        `toml:"kms"`
+	SSHCA      SSHCA      `toml:"ssh_ca"`
 
 	DevMode DevMode `toml:"dev_mode"`
 }
@@ -245,6 +250,9 @@ func loadConfig(configFile string) (*Config, error) {
 		return config, err
 	}
 	if err := config.KMS.validate(); err != nil {
+		return config, err
+	}
+	if err := config.SSHCA.validate(); err != nil {
 		return config, err
 	}
 

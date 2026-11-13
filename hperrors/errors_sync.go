@@ -50,6 +50,10 @@ var (
 	// ErrSSHExtensionInvalid is something a certificate cannot be allowed to do, because sshd knows no such
 	// extension. Its param Name is the name.
 	ErrSSHExtensionInvalid = NewErr(ErrArgumentInvalid, "ERR_SSH_EXTENSION_INVALID")
+	// ErrSSHCAKeyUnreachable is an authority whose signing key is held by a service this server cannot reach or use:
+	// the service is down, the token is gone, or the key is not what an authority needs. Its param Name is which
+	// service. Nothing is wrong with the authority, so the answer is to fix the service and ask again.
+	ErrSSHCAKeyUnreachable = NewErr(ErrServiceUnavailable, "ERR_SSH_CA_KEY_UNREACHABLE")
 )
 
 // Errors for organizations' members.

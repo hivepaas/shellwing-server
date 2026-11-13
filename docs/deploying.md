@@ -31,6 +31,8 @@ version migrates. Give it a volume at `/var/lib/shellwing`.
 | `SHW_KMS_VAULT_MOUNT`, `_NAMESPACE`, `_CA_CERT_FILE` | Where transit is mounted (`transit`), the Vault Enterprise namespace, and a PEM to trust instead of the system store. |
 | `SHW_KMS_AWS_KEY_ID`, `_REGION` | For `awskms`: the key's ID, ARN or alias, and its region. |
 | `SHW_KMS_AWS_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_SESSION_TOKEN` | Its credential. Leave all three unset to use the instance or service account role, which is better: no long-lived secret in the configuration. |
+| `SHW_SSH_CA_KEY_PROVIDER` | Where a new SSH authority's signing key is made: `local` (the default) or `vault-transit`. See below. |
+| `SHW_SSH_CA_VAULT_KEY_PREFIX` | Names an authority's transit key: this plus the authority's id. `shellwing-ca-` by default. |
 
 A store that cannot be reached stops the start.
 
@@ -107,6 +109,41 @@ have leaked, remove the old one first.
 **The private key** is in PostgreSQL, sealed with the server's data key like any stored secret. Anybody with both the
 database and the app secret can sign for every account the target servers let a certificate reach, so treat a backup of
 them as you would the target servers' root.
+
+### Where the authority's signing key lives
+
+By default an organization's authority has its private key here, encrypted with the data encryption key. That means
+this server can sign a certificate for any account any member was granted - which is the point, and also the risk:
+whoever takes the server, its database and the key those secrets are under can sign one too.
+
+`SHW_SSH_CA_KEY_PROVIDER=vault-transit` makes a new authority's key inside a Vault or OpenBao transit engine instead.
+The engine creates it unexportable, so this server can make a key it will never be able to read: it asks the engine for
+each signature and holds nothing it could leak. The Vault is the same one `SHW_KMS_*` names; only the key is the
+authority's own, one per authority, named after it.
+
+```hcl
+path "transit/keys/shellwing-ca-*"      { capabilities = ["create", "update", "read"] }
+path "transit/sign/shellwing-ca-*"      { capabilities = ["update"] }
+```
+
+Three things follow from it:
+
+- **It applies to authorities made from then on.** One already made keeps its key where that key is. A transit key
+  cannot be exported, and a local key moved in would sign under a different public half and so be a different
+  authority. Switching the setting and making a new authority is how an organization moves - which retires the old
+  one and revokes what it signed, as replacing an authority always does.
+- **The version is pinned.** A transit key can be rotated, and a rotated key signs under a new public half from then
+  on; an authority whose public key moved would no longer be the one every target server was told to trust. So the
+  version is recorded with the authority, and rotating in the engine does nothing to what this server signs. Rotate by
+  making a new authority, not by rotating the key.
+- **Retiring an authority does not delete its key from the engine.** Transit refuses to delete a key unless it was
+  created with deletion allowed, and this server does not ask for that: being able to destroy an authority's key is
+  not a power it needs. The retired authority is never signed with again and its certificates are revoked; remove the
+  key in Vault when you want it gone.
+
+`local` and `vault-transit` are the only two. AWS, GCP and Azure KMS do asymmetric RSA and ECDSA only, with no
+Ed25519, so an authority held in one of them would have to be an ECDSA authority - a different signer, not written
+yet. A Vault or an OpenBao is also the self-hosted answer, which is the one this product is for.
 
 ### Hardening the target servers
 

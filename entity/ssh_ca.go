@@ -20,6 +20,14 @@ type SSHCA struct {
 	PublicKey  string           `json:"publicKey"`
 	PrivateKey string           `bun:",nullzero" json:"-"`
 
+	// KeyProvider says where the private half is, as base.SSHCAKeyProviders names them. base.KMSProviderLocal means
+	// PrivateKey holds it, sealed. Anything else means a service holds it and this server only asks it to sign.
+	KeyProvider string `bun:"key_provider,nullzero,default:'local'" json:"-"`
+	// KeyName and KeyVersion name the key in that service. The version is pinned: a key rotated in the service signs
+	// under a new public half, and an authority whose public key moved is no longer the one the servers trust.
+	KeyName    string `bun:"key_name,nullzero" json:"-"`
+	KeyVersion int    `bun:"key_version,nullzero" json:"-"`
+
 	CreatedAt time.Time `bun:",default:current_timestamp" json:"createdAt"`
 	RetiredAt time.Time `bun:",nullzero" json:"retiredAt,omitzero"`
 }
@@ -27,6 +35,13 @@ type SSHCA struct {
 // GetID implements IDEntity interface
 func (c *SSHCA) GetID() string {
 	return c.ID
+}
+
+// KeyIsLocal reports whether the private half is here, in PrivateKey, rather than in a service.
+//
+// An empty provider reads as local: it is what every row made before the column existed has.
+func (c *SSHCA) KeyIsLocal() bool {
+	return c.KeyProvider == "" || c.KeyProvider == base.KMSProviderLocal
 }
 
 // SetPrivateKey seals the key for storing.
