@@ -102,6 +102,12 @@ func (e *env) stored(t *testing.T) string {
 func fakeTransit(t *testing.T) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The key read that Wrap makes before wrapping: here the key is there.
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"name":"shellwing-dek","type":"aes256-gcm96"}}`))
+			return
+		}
 		raw, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		var body map[string]string

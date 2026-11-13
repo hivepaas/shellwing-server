@@ -241,6 +241,20 @@ SHW_KMS_VAULT_TOKEN=...
 SHW_KMS_VAULT_KEY=shellwing-dek
 ```
 
+The token needs three capabilities, and `read` on the key is one of them:
+
+```hcl
+path "transit/keys/shellwing-dek"    { capabilities = ["read"] }
+path "transit/encrypt/shellwing-dek" { capabilities = ["update"] }
+path "transit/decrypt/shellwing-dek" { capabilities = ["update"] }
+```
+
+`read` is there because transit's encrypt endpoint **creates** a key it does not know rather than refusing. Without
+looking the key up first, a mistyped `SHW_KMS_VAULT_KEY` would quietly get a brand new key, and the key holding every
+stored secret would not be the one you named - with none of the rotation, policy or backup you had arranged for that
+one, and nothing later to notice, because a new key unwraps its own ciphertext perfectly well. The server looks before
+it wraps, and refuses a key that is not there.
+
 What that buys is that the database and its backups stop being enough to read what is in them. Whoever takes both
 still has to call the service as this server, which is a separate credential with its own audit trail - and revoking
 it retires every copy of the backup at once, which no amount of deleting files does.

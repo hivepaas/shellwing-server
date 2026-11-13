@@ -28,6 +28,13 @@ func fakeVault(t *testing.T, answer func(call *vaultCall) (int, string)) (*httpt
 	t.Helper()
 	calls := &[]vaultCall{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The key read Wrap makes before it wraps. A test that wants that refused
+		// stands up its own server; here the key is simply there.
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"name":"k","type":"aes256-gcm96"}}`))
+			return
+		}
 		raw, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		call := vaultCall{
@@ -156,4 +163,63 @@ func TestTheTransitEngineNeedsEnoughToReachIt(t *testing.T) {
 		Address: "https://vault:8200", Token: "t", Key: "k", CACertFile: "/nope/no-such.pem",
 	})
 	require.ErrorIs(t, err, ErrNotConfigured, "a CA file that is not there is a configuration error")
+}
+
+// transit makes a key it does not know rather than refusing, so a mistyped name
+// would quietly get a new one and the key holding every stored secret would not
+// be the one the operator named. Wrap looks first.
+func TestTheTransitEngineRefusesToWrapToAKeyThatIsNotThere(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		name   string
+		status int
+		want   error
+		says   string
+	}{
+		{"not there", http.StatusNotFound, ErrKeyMissing, "correct the name"},
+		{"may not look", http.StatusForbidden, ErrServiceRefused, "may not read"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var encrypted bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					w.WriteHeader(c.status)
+					_, _ = w.Write([]byte(`{"errors":[]}`))
+					return
+				}
+				encrypted = true
+				_, _ = w.Write([]byte(`{"data":{"ciphertext":"vault:v1:Zm9v"}}`))
+			}))
+			defer server.Close()
+
+			wrapper, err := NewVaultTransit(VaultTransitOptions{
+				Address: server.URL, Token: "t", Key: "mistyped-name",
+			})
+			require.NoError(t, err)
+			_, err = wrapper.Wrap(ctx, rawKey(t))
+			require.ErrorIs(t, err, c.want)
+			assert.Contains(t, err.Error(), c.says)
+			assert.Contains(t, err.Error(), "mistyped-name", "and names the key")
+			assert.False(t, encrypted, "and never asks transit to make one")
+		})
+	}
+}
+
+// Unwrapping does not look first: the wrong key fails on its own, and a start
+// that can still open its key should not need a second capability to do it.
+func TestTheTransitEngineDoesNotLookBeforeUnwrapping(t *testing.T) {
+	var looked bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			looked = true
+		}
+		_, _ = w.Write([]byte(`{"data":{"plaintext":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}`))
+	}))
+	defer server.Close()
+
+	wrapper, err := NewVaultTransit(VaultTransitOptions{Address: server.URL, Token: "t", Key: "k"})
+	require.NoError(t, err)
+	_, err = wrapper.Unwrap(context.Background(), pack(ProviderVaultTransit, "vault:v1:Zm9v"))
+	require.NoError(t, err)
+	assert.False(t, looked)
 }
