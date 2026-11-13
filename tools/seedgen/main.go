@@ -14,6 +14,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/hivepaas/shellwing-server/base"
 	"github.com/hivepaas/shellwing-server/pkg/cryptoutil"
 	"github.com/hivepaas/shellwing-server/pkg/datakey"
+	"github.com/hivepaas/shellwing-server/pkg/kms"
 )
 
 const (
@@ -107,7 +109,11 @@ func ensureEncryptionKeyRow(content string, key *datakey.Key) (string, error) {
 		return content, nil
 	}
 
-	wrapped, err := key.Wrap(devAppSecret)
+	wrapper, err := kms.NewLocal(devAppSecret)
+	if err != nil {
+		return "", fmt.Errorf("wrap the dev data key: %w", err)
+	}
+	wrapped, err := wrapper.Wrap(context.Background(), key.Raw())
 	if err != nil {
 		return "", fmt.Errorf("wrap the dev data key: %w", err)
 	}

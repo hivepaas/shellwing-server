@@ -12,6 +12,7 @@
 package datakey
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -22,14 +23,10 @@ import (
 	"sync/atomic"
 
 	"github.com/hivepaas/shellwing-server/base"
-	"github.com/hivepaas/shellwing-server/pkg/cryptoutil"
 )
 
 // KeyLen is the DEK size in bytes, an AES-256 key.
 const KeyLen = 32
-
-// wrapSaltLen is the salt length used when wrapping the DEK with the app secret.
-const wrapSaltLen = 10
 
 var (
 	ErrNoActiveKey = fmt.Errorf("no active data encryption key")
@@ -112,29 +109,14 @@ func (k *Key) Open(ciphertext string) (string, error) {
 	return string(plaintext), nil
 }
 
-// Wrap encrypts the key itself with the app secret, for storage in the database.
+// Raw is the key's bytes, so that whatever holds the key encryption key can wrap
+// them. It is a copy: the one this key encrypts with must not change under the
+// cipher, and a caller that only writes the bytes somewhere has no reason to
+// hold the original.
 //
-// This one keeps the slow key derivation: the app secret is chosen by whoever
-// deploys the app and may be weak, and wrapping happens once at startup rather
-// than once per value.
-func (k *Key) Wrap(appSecret string) (string, error) {
-	wrapped, err := cryptoutil.EncryptBase64(
-		base64.StdEncoding.EncodeToString(k.raw), wrapSaltLen, appSecret)
-	if err != nil {
-		return "", fmt.Errorf("failed to wrap the data encryption key: %w", err)
-	}
-	return wrapped, nil
-}
-
-// Unwrap recovers a key wrapped with Wrap.
-func Unwrap(wrapped, appSecret string) (*Key, error) {
-	encoded, err := cryptoutil.DecryptBase64(wrapped, appSecret)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unwrap the data encryption key: %w", err)
-	}
-	raw, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrKeyInvalid, err)
-	}
-	return New(raw)
+// Nothing else should want these. Sealing and opening go through the methods
+// above, and every copy of these bytes is one more place the key can be read
+// from. How they are wrapped is pkg/kms's.
+func (k *Key) Raw() []byte {
+	return bytes.Clone(k.raw)
 }

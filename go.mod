@@ -7,12 +7,13 @@ toolchain go1.27.2
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
-	github.com/aws/aws-sdk-go-v2 v1.47.7
+	github.com/aws/aws-sdk-go-v2 v1.48.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.15
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.15
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.5.4
+	github.com/aws/aws-sdk-go-v2/service/kms v1.62.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.8
-	github.com/aws/smithy-go v1.28.8
+	github.com/aws/smithy-go v1.28.9
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/darkrockmountain/gomail v0.6.1
@@ -65,8 +66,8 @@ require (
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.26 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.7 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.10 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.10 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.12 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.12 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.10 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.24 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.11 // indirect

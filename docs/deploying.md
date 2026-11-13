@@ -26,6 +26,11 @@ version migrates. Give it a volume at `/var/lib/shellwing`.
 | `SHW_SYNC_STORE_ENDPOINT`, `_REGION`, `_BUCKET`, `_PREFIX`, `_PATH_STYLE` | S3-compatible storage, whose bucket must exist. `_PATH_STYLE` is for servers without bucket subdomains. |
 | `SHW_SYNC_STORE_ACCESS_KEY`, `SHW_SYNC_STORE_SECRET_KEY` | Its key. It needs to read, write, delete and list. |
 | `SHW_SYNC_MAX_OBJECT_BYTES`, `SHW_SYNC_MAX_SPACE_BYTES` | The largest file (8 MiB), and what one space may hold (0: no limit). |
+| `SHW_KMS_PROVIDER` | What holds the key the stored secrets are under: `local` (the default, the app secret), `vault-transit` or `awskms`. See below. |
+| `SHW_KMS_VAULT_ADDRESS`, `_TOKEN`, `_KEY` | For `vault-transit`: the Vault or OpenBao, a token of the server's own, and the transit key's name. |
+| `SHW_KMS_VAULT_MOUNT`, `_NAMESPACE`, `_CA_CERT_FILE` | Where transit is mounted (`transit`), the Vault Enterprise namespace, and a PEM to trust instead of the system store. |
+| `SHW_KMS_AWS_KEY_ID`, `_REGION` | For `awskms`: the key's ID, ARN or alias, and its region. |
+| `SHW_KMS_AWS_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_SESSION_TOKEN` | Its credential. Leave all three unset to use the instance or service account role, which is better: no long-lived secret in the configuration. |
 
 A store that cannot be reached stops the start.
 
@@ -193,7 +198,7 @@ offline. The app asks for a passphrase hard to guess and stretches it with Argon
 same, and turn on the encryption it offers (SSE on S3, an encrypted disk for a local folder).
 
 The server does not encrypt the files once more: with its own key, it would only protect against the store leaking
-alone, while losing `SHW_APP_SECRET` would lose everybody's data.
+alone, while losing the key its own secrets are under would lose everybody's data.
 
 The encryption stops the server from reading or changing a record, not from holding back or deleting one. A device
 keeps what it has: a record replayed from before is older than its own, and loses when they merge. A new device could
@@ -219,6 +224,42 @@ and is no reason for a new key.
 many are hosts. Each grant, new key, key given and key fetched by a device is in the audit log.
 
 Deleting a collection stops its sync at once; its files go after the store's trash delay.
+
+## Protecting the stored secrets
+
+Stored secrets are encrypted with a data encryption key, and that key is kept in the database wrapped by a key
+encryption key. Changing what holds the key encryption key is therefore one row and nothing else: no pass over the
+values, nothing to resume, no window where some are readable and some are not.
+
+By default the app secret holds it, which needs nothing deployed beside the server. `SHW_KMS_PROVIDER` moves it to a
+service instead:
+
+```
+SHW_KMS_PROVIDER=vault-transit
+SHW_KMS_VAULT_ADDRESS=https://vault.internal:8200
+SHW_KMS_VAULT_TOKEN=...
+SHW_KMS_VAULT_KEY=shellwing-dek
+```
+
+What that buys is that the database and its backups stop being enough to read what is in them. Whoever takes both
+still has to call the service as this server, which is a separate credential with its own audit trail - and revoking
+it retires every copy of the backup at once, which no amount of deleting files does.
+
+What it does not buy is anything against somebody already running as this server. The data encryption key is in its
+memory while it runs, and so is an organization's SSH CA key for as long as it signs with it. Keeping the CA key out
+of the server altogether is a different change, not this one.
+
+The move happens on the next start, and the log says so. Two things to know about it:
+
+- **Keep the old provider's settings until the move has happened.** Turning a service off is not only a change of
+  `SHW_KMS_PROVIDER`: the key still has to be opened by whatever wrapped it. Dropping the service's address and token
+  in the same change leaves a server that will not start, and says so. Change the provider first, let it start, then
+  remove them.
+- **A key the server cannot open stops the start.** That is deliberate. A server that carried on would write new
+  secrets under a new key beside the ones it can no longer read.
+
+`vault-transit` works against OpenBao as well, and is the one to choose for a self-hosted install. Of the three, it is
+also the only one whose keys can sign Ed25519, which matters if signing itself moves to the service later.
 
 ## Backups
 

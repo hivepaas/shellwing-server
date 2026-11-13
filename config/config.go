@@ -48,6 +48,10 @@ var (
 	ErrConfigFileNotFound = errors.New("config file not found")
 	ErrAppSecretUnset     = errors.New("app secret is not configured")
 	ErrTimezoneInvalid    = errors.New("timezone is not a zone name")
+	// ErrKMSProviderUnknown is a key management service this server has no
+	// support for. It stops the start: carrying on with the app secret instead
+	// would protect the stored key with something other than what was asked for.
+	ErrKMSProviderUnknown = errors.New("KMS provider is not one this server knows")
 )
 
 const (
@@ -122,6 +126,7 @@ type Config struct {
 	Tasks      Tasks      `toml:"tasks"`
 	Security   Security   `toml:"security"`
 	Sync       Sync       `toml:"sync"`
+	KMS        KMS        `toml:"kms"`
 
 	DevMode DevMode `toml:"dev_mode"`
 }
@@ -237,6 +242,9 @@ func loadConfig(configFile string) (*Config, error) {
 		return config, err
 	}
 	if err := config.Sync.validate(); err != nil {
+		return config, err
+	}
+	if err := config.KMS.validate(); err != nil {
 		return config, err
 	}
 
