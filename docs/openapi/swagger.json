@@ -9078,6 +9078,10 @@
           "id" : {
             "type" : "string"
           },
+          "keyProvider" : {
+            "description" : "KeyProvider is where the private half is: \"local\" for one this server holds, or the service holding it. The\nkey's name and version within that service are the operator's business rather than an admin's, so they are not\nhere.",
+            "type" : "string"
+          },
           "publicKey" : {
             "type" : "string"
           },
@@ -9088,7 +9092,7 @@
             "$ref" : "#/components/schemas/base.SSHCAStatus"
           }
         },
-        "required" : [ "createdAt", "id", "publicKey", "retiredAt", "status" ],
+        "required" : [ "createdAt", "id", "keyProvider", "publicKey", "retiredAt", "status" ],
         "type" : "object"
       },
       "orgdto.SSHCertificateResp" : {

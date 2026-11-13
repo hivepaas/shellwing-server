@@ -31,3 +31,21 @@ func ValidKMSProvider(name string) bool {
 	}
 	return false
 }
+
+// SSHCAKeyProviders are where an organization's SSH certificate authority can
+// have its private half made.
+//
+// AWS KMS is missing on purpose, although it is a KMSProvider: its asymmetric
+// keys do RSA and ECDSA only, with no Ed25519, so an authority held there would
+// have to be an ECDSA one - a different signer, and not written yet.
+var SSHCAKeyProviders = []string{KMSProviderLocal, KMSProviderVaultTransit}
+
+// ValidSSHCAKeyProvider says whether an authority's key can be made there.
+func ValidSSHCAKeyProvider(name string) bool {
+	for _, provider := range SSHCAKeyProviders {
+		if provider == name {
+			return true
+		}
+	}
+	return false
+}

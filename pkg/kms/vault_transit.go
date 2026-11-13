@@ -66,6 +66,13 @@ type vaultTransit struct {
 // It does not call it: whether the token works is found on the first wrap or
 // unwrap, which is at startup.
 func NewVaultTransit(opts VaultTransitOptions) (Wrapper, error) {
+	return newVaultTransit(opts)
+}
+
+// newVaultTransit is NewVaultTransit's concrete half, so that the signer in
+// vault_transit_signer.go can share the address, token, mount and client rather
+// than keep a second copy of all of it.
+func newVaultTransit(opts VaultTransitOptions) (*vaultTransit, error) {
 	switch {
 	case opts.Address == "":
 		return nil, fmt.Errorf("%w: %s needs an address", ErrNotConfigured, ProviderVaultTransit)

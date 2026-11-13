@@ -36,6 +36,16 @@ func authorized(t *testing.T, key any) string {
 	return string(ssh.MarshalAuthorizedKey(sshPublic))
 }
 
+// signerOf is the CA key as something that signs. Signing takes a signer rather
+// than a key so that a key held by a service, and not by this process, can sign
+// too - see pkg/kms.
+func signerOf(t *testing.T, ca *CAKey) ssh.Signer {
+	t.Helper()
+	signer, err := SignerFromPEM(ca.PrivateKey)
+	require.NoError(t, err)
+	return signer
+}
+
 func parsedCert(t *testing.T, text string) *ssh.Certificate {
 	t.Helper()
 	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(text)) //nolint:dogsled // only the key
@@ -54,7 +64,7 @@ func TestSignMakesACertificateSSHTrusts(t *testing.T) {
 
 	key, _ := userKey(t)
 	now := time.Now().UTC()
-	signed, err := Sign(ca.PrivateKey, &UserCert{
+	signed, err := Sign(signerOf(t, ca), &UserCert{
 		Key: key, KeyID: "user=alice", Principals: []string{"deploy", "alice"}, TTL: time.Hour, Now: now,
 	})
 	require.NoError(t, err)
@@ -88,7 +98,7 @@ func TestSignCarriesOnlyTheExtensionsItWasGiven(t *testing.T) {
 	key, _ := userKey(t)
 	sign := func(t *testing.T, extensions []string) (*ssh.Certificate, error) {
 		t.Helper()
-		signed, err := Sign(ca.PrivateKey, &UserCert{
+		signed, err := Sign(signerOf(t, ca), &UserCert{
 			Key: key, Principals: []string{"deploy"}, Extensions: extensions, TTL: time.Hour, Now: time.Now(),
 		})
 		if err != nil {
@@ -138,7 +148,7 @@ func TestSignRefusesACertificateWithNoPrincipals(t *testing.T) {
 	ca, err := GenerateCA()
 	require.NoError(t, err)
 	key, _ := userKey(t)
-	_, err = Sign(ca.PrivateKey, &UserCert{Key: key, TTL: time.Hour, Now: time.Now()})
+	_, err = Sign(signerOf(t, ca), &UserCert{Key: key, TTL: time.Hour, Now: time.Now()})
 	require.ErrorIs(t, err, hperrors.ErrSSHNoPrincipals, "sshd reads no principals as any account")
 }
 
@@ -151,11 +161,11 @@ func TestSignRefusesMorePrincipalsThanAllowed(t *testing.T) {
 		names = append(names, "account"+strconv.Itoa(i))
 	}
 
-	_, err = Sign(ca.PrivateKey, &UserCert{Key: key, Principals: names[:MaxPrincipals], TTL: time.Hour,
+	_, err = Sign(signerOf(t, ca), &UserCert{Key: key, Principals: names[:MaxPrincipals], TTL: time.Hour,
 		Now: time.Now()})
 	require.NoError(t, err, "the bound itself is allowed")
 
-	_, err = Sign(ca.PrivateKey, &UserCert{Key: key, Principals: names, TTL: time.Hour, Now: time.Now()})
+	_, err = Sign(signerOf(t, ca), &UserCert{Key: key, Principals: names, TTL: time.Hour, Now: time.Now()})
 	require.ErrorIs(t, err, hperrors.ErrSSHTooManyPrincipals, "a member's own and their groups' together")
 }
 
@@ -186,7 +196,7 @@ func TestParseUserKey(t *testing.T) {
 	ca, err := GenerateCA()
 	require.NoError(t, err)
 	key, _ := userKey(t)
-	signed, err := Sign(ca.PrivateKey, &UserCert{Key: key, Principals: []string{"a"}, TTL: time.Hour, Now: time.Now()})
+	signed, err := Sign(signerOf(t, ca), &UserCert{Key: key, Principals: []string{"a"}, TTL: time.Hour, Now: time.Now()})
 	require.NoError(t, err)
 	_, err = ParseUserKey(signed.Certificate)
 	require.ErrorIs(t, err, hperrors.ErrSSHPublicKeyInvalid, "a certificate of a certificate")

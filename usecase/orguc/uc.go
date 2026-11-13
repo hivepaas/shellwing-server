@@ -23,7 +23,6 @@ import (
 	"github.com/hivepaas/shellwing-server/pkg/sshkrl"
 	"github.com/hivepaas/shellwing-server/pkg/timeutil"
 	"github.com/hivepaas/shellwing-server/pkg/transaction"
-	"github.com/hivepaas/shellwing-server/pkg/ulid"
 	"github.com/hivepaas/shellwing-server/repository"
 	"github.com/hivepaas/shellwing-server/repository/cacherepository"
 	"github.com/hivepaas/shellwing-server/service/auditservice"
@@ -320,20 +319,10 @@ func (uc *UC) writeSSHKRL(ctx context.Context, orgID string) ([]byte, error) {
 // CreateSSHCA makes a new active CA. One before it is retired and its private key destroyed: certificates it signed
 // still work until they expire, on servers that still trust it.
 func (uc *UC) CreateSSHCA(ctx context.Context, auth *basedto.Auth, orgID string) (*orgdto.CreateSSHCAResp, error) {
-	key, err := sshca.GenerateCA()
-	if err != nil {
-		return nil, hperrors.Wrap(err)
-	}
 	now := timeutil.NowUTC()
-	ca := &entity.SSHCA{
-		ID:        gofn.Must(ulid.NewStringULID()),
-		OrgID:     orgID,
-		Status:    base.SSHCAStatusActive,
-		PublicKey: key.PublicKey,
-		CreatedAt: now,
-	}
-	if err = ca.SetPrivateKey(key.PrivateKey); err != nil {
-		return nil, hperrors.Wrap(err)
+	ca, err := uc.newCA(ctx, orgID, now)
+	if err != nil {
+		return nil, err
 	}
 	err = transaction.Execute(ctx, uc.db, func(tx database.Tx) error {
 		if err := uc.requireAdmin(ctx, tx, auth, orgID); err != nil {
@@ -720,11 +709,11 @@ func (uc *UC) IssueSSHCertificate(ctx context.Context, auth *basedto.Auth, orgID
 		if ca == nil {
 			return hperrors.Wrap(hperrors.ErrSSHCANotSetUp)
 		}
-		caKey, err := ca.GetPrivateKey()
+		signer, err := uc.caSigner(ctx, ca)
 		if err != nil {
-			return hperrors.Wrap(err)
+			return err
 		}
-		signed, err := sshca.Sign(caKey, &sshca.UserCert{
+		signed, err := sshca.Sign(signer, &sshca.UserCert{
 			Key:        key,
 			KeyID:      keyIDOf(auth),
 			Principals: principals,
