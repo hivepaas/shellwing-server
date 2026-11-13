@@ -1,0 +1,23 @@
+[Unit]
+Description=Fetch the shellwing SSH key revocation list
+Documentation=https://github.com/hivepaas/shellwing-server/blob/main/docs/deploying.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/shellwing-krl-fetch.sh
+# A failed fetch leaves the list already in place alone, so one is not worth stopping the timer over: the next run
+# tries again.
+SuccessExitStatus=0
+
+# It reads one configuration file and writes one file in /etc/ssh, and needs nothing else.
+ProtectSystem=strict
+ReadWritePaths=/etc/ssh
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6

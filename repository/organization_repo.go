@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/uptrace/bun/dialect/pgdialect"
 
@@ -34,6 +35,14 @@ type OrganizationRepo interface {
 	// GetByID returns nil when no organization has the id.
 	GetByID(ctx context.Context, db database.IDB, id string) (*entity.Organization, error)
 	SetSSHCertTTL(ctx context.Context, db database.IDB, id string, minutes int) error
+	// SetSSHCertExtensions stores what the organization's certificates are allowed to do.
+	SetSSHCertExtensions(ctx context.Context, db database.IDB, id string, extensions []string) error
+	// SetSSHKRLToken stores the hash a target server fetches the revocation list with, or clears it with an empty
+	// hash.
+	SetSSHKRLToken(ctx context.Context, db database.IDB, id, tokenHash string, now time.Time) error
+	// GetBySSHKRLToken returns the organization that token belongs to, or nil. The token names it by itself, so a
+	// caller holding one needs no session.
+	GetBySSHKRLToken(ctx context.Context, db database.IDB, tokenHash string) (*entity.Organization, error)
 	// GetMember returns nil when the user is not a member.
 	GetMember(ctx context.Context, db database.IDB, orgID, userID string) (*entity.OrgMember, error)
 	// ListMembers returns the organization's members who are users still, removed ones included, by username.
@@ -173,6 +182,51 @@ func (repo *organizationRepo) SetSSHCertTTL(ctx context.Context, db database.IDB
 		return hperrors.Wrap(err)
 	}
 	return nil
+}
+
+func (repo *organizationRepo) SetSSHCertExtensions(ctx context.Context, db database.IDB, id string,
+	extensions []string) error {
+	if extensions == nil {
+		extensions = []string{}
+	}
+	_, err := db.NewUpdate().Model((*entity.Organization)(nil)).
+		Set("ssh_cert_extensions = ?", pgdialect.Array(extensions)).
+		Set("updated_at = CURRENT_TIMESTAMP").
+		Where("id = ?", id).Exec(ctx)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *organizationRepo) SetSSHKRLToken(ctx context.Context, db database.IDB, id, tokenHash string,
+	now time.Time) error {
+	q := db.NewUpdate().Model((*entity.Organization)(nil)).Set("updated_at = CURRENT_TIMESTAMP").Where("id = ?", id)
+	if tokenHash == "" {
+		q = q.Set("ssh_krl_token_hash = NULL").Set("ssh_krl_token_created_at = NULL")
+	} else {
+		q = q.Set("ssh_krl_token_hash = ?", tokenHash).Set("ssh_krl_token_created_at = ?", now)
+	}
+	if _, err := q.Exec(ctx); err != nil {
+		return hperrors.Wrap(err)
+	}
+	return nil
+}
+
+func (repo *organizationRepo) GetBySSHKRLToken(ctx context.Context, db database.IDB, tokenHash string) (
+	*entity.Organization, error) {
+	if tokenHash == "" {
+		return nil, nil
+	}
+	org := &entity.Organization{}
+	err := db.NewSelect().Model(org).Where("ssh_krl_token_hash = ?", tokenHash).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return org, nil
 }
 
 func (repo *organizationRepo) GetMember(ctx context.Context, db database.IDB,

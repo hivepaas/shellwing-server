@@ -168,6 +168,7 @@ var Provides = []any{
 	repository.NewLoginTrustedDeviceRepo,
 	repository.NewOrganizationRepo,
 	repository.NewSSHCARepo,
+	repository.NewSSHCertificateRepo,
 	repository.NewOrgGroupRepo,
 	repository.NewCollectionRepo,
 	repository.NewUserIdentityRepo,

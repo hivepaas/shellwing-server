@@ -24,7 +24,8 @@ var (
 	ErrScopeNotAllowed = NewErr(ErrForbidden, "ERR_SCOPE_NOT_ALLOWED")
 )
 
-// Errors for SSH certificates. A rule that refuses is 412, as for the limit of users: none is about who is asking.
+// Errors for SSH certificates. A rule that refuses is 412, as for the limit of users: none is about who is asking,
+// except ErrSSHSelfGrant, which is about exactly that.
 var (
 	// ErrSSHCANotSetUp is an organization with no active CA: an admin makes one.
 	ErrSSHCANotSetUp = NewErr(ErrPreconditionFailed, "ERR_SSH_CA_NOT_SET_UP")
@@ -37,6 +38,18 @@ var (
 	// ErrSSHPrincipalInvalid is a name no account could have, or that would mean something else in a server's
 	// configuration. Its param Name is the name.
 	ErrSSHPrincipalInvalid = NewErr(ErrArgumentInvalid, "ERR_SSH_PRINCIPAL_INVALID")
+	// ErrSSHTooManyPrincipals is more accounts in one certificate than sshca.MaxPrincipals: a member's own and
+	// their groups' together went over it, which an admin undoes by granting fewer.
+	ErrSSHTooManyPrincipals = NewErr(ErrPreconditionFailed, "ERR_SSH_TOO_MANY_PRINCIPALS")
+	// ErrSSHSelfGrant refuses a change that would give the admin making it an account they did not already have.
+	// Its param Name is the first such account. Another admin grants it.
+	ErrSSHSelfGrant = NewErr(ErrForbidden, "ERR_SSH_SELF_GRANT")
+	// ErrSSHKRLTokenInvalid is a revocation list fetched with a token no organization has, or whose organization is
+	// not active. It says nothing about which, so that one answer does not tell a caller it guessed an organization.
+	ErrSSHKRLTokenInvalid = NewErr(ErrUnauthorized, "ERR_SSH_KRL_TOKEN_INVALID")
+	// ErrSSHExtensionInvalid is something a certificate cannot be allowed to do, because sshd knows no such
+	// extension. Its param Name is the name.
+	ErrSSHExtensionInvalid = NewErr(ErrArgumentInvalid, "ERR_SSH_EXTENSION_INVALID")
 )
 
 // Errors for organizations' members.

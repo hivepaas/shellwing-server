@@ -2601,6 +2601,165 @@
         "x-codegen-request-body-name" : "body"
       }
     },
+    "/orgs/{orgID}/ssh/krl" : {
+      "get" : {
+        "description" : "The binary file sshd's RevokedKeys names, which refuses a certificate by serial for the rest of its\nlifetime. It covers every authority the organization has had, and is a valid list even with nothing\nrevoked. Fetch it the way the rest of a server's configuration is kept up to date.",
+        "operationId" : "sshKRL",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : { },
+            "description" : "OK"
+          },
+          "404" : {
+            "content" : {
+              "application/octet-stream" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/octet-stream" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Returns the organization's SSH key revocation list",
+        "tags" : [ "Organizations" ]
+      }
+    },
+    "/orgs/{orgID}/ssh/krl/token" : {
+      "delete" : {
+        "description" : "They stop being able to fetch; the list each has in place keeps working, and refuses less than the\ncurrent one rather than more.",
+        "operationId" : "deleteSSHKRLToken",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.DeleteSSHKRLTokenResp"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Takes away the token the organization's servers fetch the revocation list with",
+        "tags" : [ "Organizations" ]
+      },
+      "post" : {
+        "description" : "The token is in this answer and nowhere else: only its hash is kept. One made before stops working, so\nthis is also how a token that may have leaked is replaced.",
+        "operationId" : "createSSHKRLToken",
+        "parameters" : [ {
+          "description" : "organization ID",
+          "in" : "path",
+          "name" : "orgID",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/orgdto.CreateSSHKRLTokenResp"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "403" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Forbidden"
+          },
+          "404" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Not Found"
+          },
+          "500" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/hperrors.ErrorInfo"
+                }
+              }
+            },
+            "description" : "Internal Server Error"
+          }
+        },
+        "summary" : "Makes a token the organization's servers fetch the revocation list with",
+        "tags" : [ "Organizations" ]
+      }
+    },
     "/orgs/{orgID}/ssh/members/{userID}/principals" : {
       "get" : {
         "description" : "What an admin granted them.",
@@ -8578,6 +8737,24 @@
         "required" : [ "data", "meta" ],
         "type" : "object"
       },
+      "orgdto.CreateSSHKRLTokenResp" : {
+        "properties" : {
+          "data" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/orgdto.SSHKRLTokenResp"
+            } ],
+            "nullable" : true
+          },
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "data", "meta" ],
+        "type" : "object"
+      },
       "orgdto.DeleteGroupResp" : {
         "properties" : {
           "meta" : {
@@ -8591,6 +8768,18 @@
         "type" : "object"
       },
       "orgdto.DeleteSSHCAResp" : {
+        "properties" : {
+          "meta" : {
+            "allOf" : [ {
+              "$ref" : "#/components/schemas/basedto.Meta"
+            } ],
+            "nullable" : true
+          }
+        },
+        "required" : [ "meta" ],
+        "type" : "object"
+      },
+      "orgdto.DeleteSSHKRLTokenResp" : {
         "properties" : {
           "meta" : {
             "allOf" : [ {
@@ -8854,8 +9043,20 @@
           "slug" : {
             "type" : "string"
           },
+          "sshCertExtensions" : {
+            "description" : "SSHCertExtensions is what a certificate the organization signs is allowed to do, by sshd's extension names.",
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
           "sshCertTtlMinutes" : {
             "type" : "integer"
+          },
+          "sshKrlTokenCreatedAt" : {
+            "description" : "SSHKRLTokenCreatedAt is when the organization's servers were given a token to fetch the revocation list with.\nZero: there is none, and nothing fetches the list without a member's session. The token itself is never here.",
+            "type" : "string"
           },
           "sshPrincipals" : {
             "description" : "SSHPrincipals are what the member's certificates may log in as: their own accounts and their groups'.",
@@ -8866,7 +9067,7 @@
             "type" : "array"
           }
         },
-        "required" : [ "id", "name", "role", "slug", "sshCertTtlMinutes", "sshPrincipals" ],
+        "required" : [ "id", "name", "role", "slug", "sshCertExtensions", "sshCertTtlMinutes", "sshKrlTokenCreatedAt", "sshPrincipals" ],
         "type" : "object"
       },
       "orgdto.SSHCAResp" : {
@@ -8910,6 +9111,18 @@
           }
         },
         "required" : [ "certificate", "principals", "validAfter", "validBefore" ],
+        "type" : "object"
+      },
+      "orgdto.SSHKRLTokenResp" : {
+        "properties" : {
+          "createdAt" : {
+            "type" : "string"
+          },
+          "token" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "createdAt", "token" ],
         "type" : "object"
       },
       "orgdto.SSHPrincipalsResp" : {
@@ -9001,11 +9214,20 @@
       },
       "orgdto.UpdateSSHSettingsReq" : {
         "properties" : {
+          "certExtensions" : {
+            "description" : "CertExtensions is what a certificate may do, from sshca.AllExtensions.",
+            "items" : {
+              "type" : "string"
+            },
+            "nullable" : true,
+            "type" : "array"
+          },
           "certTtlMinutes" : {
+            "nullable" : true,
             "type" : "integer"
           }
         },
-        "required" : [ "certTtlMinutes" ],
+        "required" : [ "certExtensions", "certTtlMinutes" ],
         "type" : "object"
       },
       "orgdto.UpdateSSHSettingsResp" : {

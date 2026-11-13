@@ -107,9 +107,9 @@ export function SshCertLifetimeSection({ orgId, certTtlMinutes }: Props) {
         <ContentBlock label="Certificate lifetime">
             <div className="flex flex-col gap-4">
                 <p className="text-sm text-muted-foreground">
-                    How long a certificate lasts once signed. A certificate cannot be revoked: taking a person&apos;s
-                    accounts away, or disabling them, stops new ones, and the ones they hold work until they end. Keep
-                    it short.
+                    How long a certificate lasts once signed. Taking a person&apos;s accounts away, or disabling them,
+                    revokes the certificates they hold - but a revocation only reaches a server once it has fetched the
+                    list again, and this is what bounds the worst case. Keep it short.
                 </p>
                 {/* Saved elsewhere, or read back after saving: the form starts again from what is in force. */}
                 <LifetimeForm

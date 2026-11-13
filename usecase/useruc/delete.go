@@ -10,6 +10,7 @@ import (
 	"github.com/hivepaas/shellwing-server/infra/database"
 	"github.com/hivepaas/shellwing-server/pkg/auditdetail"
 	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/timeutil"
 	"github.com/hivepaas/shellwing-server/pkg/transaction"
 	"github.com/hivepaas/shellwing-server/usecase/useruc/userdto"
 )
@@ -22,6 +23,14 @@ func (uc *UC) DeleteUser(
 	err := transaction.Execute(ctx, uc.db, func(db database.Tx) error {
 		userData := &deleteUserData{}
 		err := uc.loadUserDataForDelete(ctx, db, auth, req, userData)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+
+		// Before the account goes: the certificates it holds are revoked, not deleted. A revocation list names a
+		// serial until the certificate behind it would have ended anyway, so removing those rows here would hand
+		// back what deleting the account is meant to take away.
+		_, err = uc.sshCertRepo.RevokeAllOfUser(ctx, db, userData.User.ID, timeutil.NowUTC())
 		if err != nil {
 			return hperrors.Wrap(err)
 		}

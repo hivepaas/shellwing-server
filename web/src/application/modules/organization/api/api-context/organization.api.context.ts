@@ -9,6 +9,8 @@ import {
     OrgMembersApiValidator,
     SshCaApi,
     SshCaApiValidator,
+    SshKrlApi,
+    SshKrlApiValidator,
     SshPrincipalsApi,
     SshPrincipalsApiValidator,
     SshSettingsApi,
@@ -23,6 +25,7 @@ function createApi() {
     const orgGroupsValidator = new OrgGroupsApiValidator();
     const collectionsValidator = new CollectionsApiValidator();
     const sshCaValidator = new SshCaApiValidator();
+    const sshKrlValidator = new SshKrlApiValidator();
     const sshSettingsValidator = new SshSettingsApiValidator();
     const sshPrincipalsValidator = new SshPrincipalsApiValidator();
 
@@ -33,6 +36,7 @@ function createApi() {
             collections: new CollectionsApi(collectionsValidator),
             ssh: {
                 cas: new SshCaApi(sshCaValidator),
+                krl: new SshKrlApi(sshKrlValidator),
                 settings: new SshSettingsApi(sshSettingsValidator),
                 principals: new SshPrincipalsApi(sshPrincipalsValidator),
             },

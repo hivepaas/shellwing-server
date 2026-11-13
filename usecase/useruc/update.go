@@ -59,6 +59,15 @@ func (uc *UC) UpdateUser(
 			return hperrors.Wrap(err)
 		}
 
+		// And the SSH certificates they hold, if the account is no longer one that may sign in. Every membership
+		// hangs off the account, so none of them may still reach a server; signing out alone would leave whoever
+		// holds a certificate able to log in until it ended.
+		if userData.User.Status != base.UserStatusActive {
+			if _, err = uc.sshCertRepo.RevokeAllOfUser(ctx, db, req.ID, timeutil.NowUTC()); err != nil {
+				return hperrors.Wrap(err)
+			}
+		}
+
 		if err = uc.userService.PersistUserData(ctx, db, persistingData); err != nil {
 			return hperrors.Wrap(err)
 		}

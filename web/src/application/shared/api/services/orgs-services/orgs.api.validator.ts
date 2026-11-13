@@ -16,6 +16,15 @@ const OrgSchema = z.object({
         .array(z.string())
         .nullish()
         .transform(value => value ?? []),
+    sshCertExtensions: z
+        .array(z.string())
+        .nullish()
+        .transform(value => value ?? []),
+    // Left out while its servers have no token of their own.
+    sshKrlTokenCreatedAt: z.coerce
+        .date()
+        .nullish()
+        .transform(value => value ?? null),
 });
 
 const FindManySchema = z.object({

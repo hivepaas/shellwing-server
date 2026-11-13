@@ -21,6 +21,9 @@ func (s *HTTPServer) registerOrgRoutes(apiGroup *gin.RouterGroup) {
 	groupGroup.PUT("/:groupID/members", orgHandler.SetGroupMembers)
 
 	sshGroup := orgGroup.Group("/:orgID/ssh")
+	sshGroup.GET("/krl", orgHandler.SSHKRL)
+	sshGroup.POST("/krl/token", orgHandler.CreateSSHKRLToken)
+	sshGroup.DELETE("/krl/token", orgHandler.DeleteSSHKRLToken)
 	sshGroup.GET("/cas", orgHandler.ListSSHCAs)
 	sshGroup.POST("/cas", orgHandler.CreateSSHCA)
 	sshGroup.DELETE("/cas/:caID", orgHandler.DeleteSSHCA)

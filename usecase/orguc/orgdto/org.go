@@ -21,12 +21,21 @@ type OrgResp struct {
 	SSHCertTTLMinutes int          `json:"sshCertTtlMinutes"`
 	// SSHPrincipals are what the member's certificates may log in as: their own accounts and their groups'.
 	SSHPrincipals []string `json:"sshPrincipals"`
+	// SSHCertExtensions is what a certificate the organization signs is allowed to do, by sshd's extension names.
+	SSHCertExtensions []string `json:"sshCertExtensions"`
+	// SSHKRLTokenCreatedAt is when the organization's servers were given a token to fetch the revocation list with.
+	// Zero: there is none, and nothing fetches the list without a member's session. The token itself is never here.
+	SSHKRLTokenCreatedAt time.Time `json:"sshKrlTokenCreatedAt,omitzero"`
 }
 
 // TransformOrg is the organization as one member sees it, with what their certificates may log in as.
 func TransformOrg(org *entity.Organization, member *entity.OrgMember, principals []string) *OrgResp {
 	if principals == nil {
 		principals = []string{}
+	}
+	extensions := org.SSHCertExtensions
+	if extensions == nil {
+		extensions = []string{}
 	}
 	return &OrgResp{
 		ID:                org.ID,
@@ -35,6 +44,9 @@ func TransformOrg(org *entity.Organization, member *entity.OrgMember, principals
 		Role:              member.Role,
 		SSHCertTTLMinutes: org.SSHCertTTLMinutes,
 		SSHPrincipals:     principals,
+
+		SSHCertExtensions:    extensions,
+		SSHKRLTokenCreatedAt: org.SSHKRLTokenCreatedAt,
 	}
 }
 
@@ -67,6 +79,22 @@ type ListSSHCAsResp struct {
 	Data []*SSHCAResp  `json:"data"`
 }
 
+// SSHKRLTokenResp is a token a target server fetches the revocation list with. Token is filled in the answer that
+// made it and never again: only its hash is kept.
+type SSHKRLTokenResp struct {
+	Token     string    `json:"token"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type CreateSSHKRLTokenResp struct {
+	Meta *basedto.Meta    `json:"meta"`
+	Data *SSHKRLTokenResp `json:"data"`
+}
+
+type DeleteSSHKRLTokenResp struct {
+	Meta *basedto.Meta `json:"meta"`
+}
+
 type CreateSSHCAResp struct {
 	Meta *basedto.Meta `json:"meta"`
 	Data *SSHCAResp    `json:"data"`
@@ -76,9 +104,16 @@ type DeleteSSHCAResp struct {
 	Meta *basedto.Meta `json:"meta"`
 }
 
-// UpdateSSHSettingsReq sets how long the organization's certificates last.
+// UpdateSSHSettingsReq sets how long the organization's certificates last, and what they are allowed to do.
+//
+// Both fields are pointers, so that a caller changes one setting without having to send the other back. An empty list
+// of extensions is a setting of its own - a certificate that logs in and runs a command - and would otherwise be
+// indistinguishable from not having been sent; and a form that only changes the lifetime should not be able to write
+// back a set of extensions it read some time ago.
 type UpdateSSHSettingsReq struct {
-	CertTTLMinutes int `json:"certTtlMinutes"`
+	CertTTLMinutes *int `json:"certTtlMinutes"`
+	// CertExtensions is what a certificate may do, from sshca.AllExtensions.
+	CertExtensions *[]string `json:"certExtensions"`
 }
 
 func NewUpdateSSHSettingsReq() *UpdateSSHSettingsReq {
@@ -87,8 +122,12 @@ func NewUpdateSSHSettingsReq() *UpdateSSHSettingsReq {
 
 // Validate implements interface basedto.ReqValidator
 func (req *UpdateSSHSettingsReq) Validate() hperrors.ValidationErrors {
-	validators := basedto.ValidateNumber(&req.CertTTLMinutes, true, base.SSHCertTTLMinMinutes,
+	validators := basedto.ValidateNumber(req.CertTTLMinutes, false, base.SSHCertTTLMinMinutes,
 		base.SSHCertTTLMaxMinutes, "certTtlMinutes")
+	if req.CertExtensions != nil {
+		validators = append(validators, basedto.ValidateSliceEx(*req.CertExtensions, true, 0,
+			len(sshca.AllExtensions), sshca.AllExtensions, "certExtensions")...)
+	}
 	return hperrors.NewValidationErrors(vld.Validate(validators...))
 }
 

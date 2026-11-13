@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,43 @@ var principalPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,63}$`)
 // ValidPrincipal says whether a name can be granted.
 func ValidPrincipal(name string) bool {
 	return principalPattern.MatchString(name)
+}
+
+// The extensions a certificate may carry. Each one is a thing sshd otherwise refuses: an extension absent from a
+// certificate is refused whatever sshd's own configuration allows, so this is the narrower of the two and the one
+// worth getting right.
+const (
+	// ExtensionPermitPTY allows a terminal, which an interactive shell needs and nothing else does.
+	ExtensionPermitPTY = "permit-pty"
+	// ExtensionPermitPortForwarding allows -L, -R and -D. It is how a person reaches a machine they were never
+	// granted, through one they were, so it is off unless an organization turns it on.
+	ExtensionPermitPortForwarding = "permit-port-forwarding"
+	// ExtensionPermitAgentForwarding allows the target server to use the keys in the person's agent. Anybody with
+	// root there can use them too, for as long as the session lasts.
+	ExtensionPermitAgentForwarding = "permit-agent-forwarding"
+	// ExtensionPermitX11Forwarding allows X11, which carries input and the screen both ways.
+	ExtensionPermitX11Forwarding = "permit-X11-forwarding"
+	// ExtensionPermitUserRC runs the target account's ~/.ssh/rc on login.
+	ExtensionPermitUserRC = "permit-user-rc"
+)
+
+// AllExtensions is every extension that may be asked for, in the order a reader expects them.
+var AllExtensions = []string{
+	ExtensionPermitPTY,
+	ExtensionPermitPortForwarding,
+	ExtensionPermitAgentForwarding,
+	ExtensionPermitX11Forwarding,
+	ExtensionPermitUserRC,
+}
+
+// DefaultExtensions is what an organization gets until it says otherwise: a terminal, and nothing that reaches past
+// the machine being logged in to. `ssh-keygen -s` grants all five by default, which is the convenience of a person
+// signing one certificate for themselves rather than a server signing them for everybody.
+var DefaultExtensions = []string{ExtensionPermitPTY}
+
+// ValidExtension says whether the name is an extension that may be asked for.
+func ValidExtension(name string) bool {
+	return slices.Contains(AllExtensions, name)
 }
 
 // CAKey is a new CA's key pair: the public half as a line for TrustedUserCAKeys, the private half as PEM.
@@ -93,6 +131,9 @@ type UserCert struct {
 	Key        ssh.PublicKey
 	KeyID      string
 	Principals []string
+	// Extensions is what the certificate is allowed to do, from AllExtensions. None is allowed and means a
+	// certificate that logs in and runs a command, with no terminal.
+	Extensions []string
 	TTL        time.Duration
 	Now        time.Time
 }
@@ -107,10 +148,24 @@ type Signed struct {
 }
 
 // Sign signs a user certificate. A certificate with no principals would be good for every account, so one is refused.
-// Its permissions are those of `ssh-keygen -s`: what a person could do with their plain key, as far as sshd says.
+// What it is allowed to do is its caller's to decide, and only what AllExtensions names can be asked for: an unknown
+// extension would be carried into the certificate and mean nothing to sshd, which is worse than being refused here.
 func Sign(caPrivateKey string, cert *UserCert) (*Signed, error) {
 	if len(cert.Principals) == 0 {
 		return nil, hperrors.Wrap(hperrors.ErrSSHNoPrincipals)
+	}
+	// MaxPrincipals is checked here rather than only where a grant is made: a member's own accounts and each of
+	// their groups' are bounded separately, and it is their union that ends up in a certificate.
+	if len(cert.Principals) > MaxPrincipals {
+		return nil, hperrors.Wrap(hperrors.ErrSSHTooManyPrincipals)
+	}
+	extensions := map[string]string{}
+	for _, name := range cert.Extensions {
+		if !ValidExtension(name) {
+			return nil, hperrors.Wrap(hperrors.ErrSSHExtensionInvalid).WithParam("Name", name)
+		}
+		// An extension is a name with an empty value: what it allows is in the name.
+		extensions[name] = ""
 	}
 	signer, err := ssh.ParsePrivateKey([]byte(caPrivateKey))
 	if err != nil {
@@ -130,13 +185,7 @@ func Sign(caPrivateKey string, cert *UserCert) (*Signed, error) {
 		ValidPrincipals: cert.Principals,
 		ValidAfter:      uint64(validAfter.Unix()),  //nolint:gosec // G115: a time after 1970
 		ValidBefore:     uint64(validBefore.Unix()), //nolint:gosec // G115: a time after 1970
-		Permissions: ssh.Permissions{Extensions: map[string]string{
-			"permit-X11-forwarding":   "",
-			"permit-agent-forwarding": "",
-			"permit-port-forwarding":  "",
-			"permit-pty":              "",
-			"permit-user-rc":          "",
-		}},
+		Permissions:     ssh.Permissions{Extensions: extensions},
 	}
 	if err = sshCert.SignCert(rand.Reader, signer); err != nil {
 		return nil, hperrors.Wrap(fmt.Errorf("signing a certificate: %w", err))

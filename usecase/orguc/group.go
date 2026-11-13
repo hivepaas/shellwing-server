@@ -70,8 +70,13 @@ func (uc *UC) CreateGroup(ctx context.Context, auth *basedto.Auth, orgID string,
 		if err := uc.requireFreeName(ctx, tx, orgID, group.Name, ""); err != nil {
 			return err
 		}
-		if err := uc.groupRepo.Insert(ctx, tx, group); err != nil {
-			return hperrors.Wrap(err)
+		// A new group has no members, so this cannot grant its maker anything; it goes through noSelfGrant all the
+		// same, so that every path which touches principals is covered by the one rule.
+		err := uc.noSelfGrant(ctx, tx, auth, orgID, func() error {
+			return hperrors.Wrap(uc.groupRepo.Insert(ctx, tx, group))
+		})
+		if err != nil {
+			return err
 		}
 		return uc.recordGroupChange(ctx, tx, auth, group, auditSectionGroupCreate, auditdetail.New().
 			Set("name", group.Name).Set("principals", principals))
@@ -82,7 +87,8 @@ func (uc *UC) CreateGroup(ctx context.Context, auth *basedto.Auth, orgID string,
 	return &orgdto.GroupDataResp{Data: orgdto.TransformGroup(group, nil)}, nil
 }
 
-// UpdateGroup changes a group's name, description and SSH accounts. Its members' next certificates follow.
+// UpdateGroup changes a group's name, description and SSH accounts. Its members' certificates are revoked and their
+// next ones follow the new accounts. An admin cannot grant themselves through a group they are in - see noSelfGrant.
 func (uc *UC) UpdateGroup(ctx context.Context, auth *basedto.Auth, orgID, groupID string, req *orgdto.GroupReq) (
 	*orgdto.GroupDataResp, error) {
 	principals, err := cleanPrincipals(req.SSHPrincipals)
@@ -98,9 +104,20 @@ func (uc *UC) UpdateGroup(ctx context.Context, auth *basedto.Auth, orgID, groupI
 		if err = uc.requireFreeName(ctx, tx, orgID, req.Name, groupID); err != nil {
 			return err
 		}
+		changedAccounts := !slices.Equal(group.SSHPrincipals, principals)
 		group.Name, group.Description, group.SSHPrincipals = req.Name, req.Description, principals
-		if err = uc.groupRepo.Update(ctx, tx, group); err != nil {
-			return hperrors.Wrap(err)
+		err = uc.noSelfGrant(ctx, tx, auth, orgID, func() error {
+			return hperrors.Wrap(uc.groupRepo.Update(ctx, tx, group))
+		})
+		if err != nil {
+			return err
+		}
+		// A rename alone reaches nobody's certificates; a change to the accounts reaches every member's.
+		var revoked int64
+		if changedAccounts {
+			if revoked, err = uc.revokeOfGroup(ctx, tx, orgID, groupID); err != nil {
+				return err
+			}
 		}
 		members, err := uc.groupRepo.ListMembers(ctx, tx, orgID)
 		if err != nil {
@@ -108,7 +125,7 @@ func (uc *UC) UpdateGroup(ctx context.Context, auth *basedto.Auth, orgID, groupI
 		}
 		data = orgdto.TransformGroup(group, members)
 		return uc.recordGroupChange(ctx, tx, auth, group, auditSectionGroupUpdate, auditdetail.New().
-			Set("name", group.Name).Set("principals", principals))
+			Set("name", group.Name).Set("principals", principals).Set("certsRevoked", revoked))
 	})
 	if err != nil {
 		return nil, hperrors.Wrap(err)
@@ -116,7 +133,7 @@ func (uc *UC) UpdateGroup(ctx context.Context, auth *basedto.Auth, orgID, groupI
 	return &orgdto.GroupDataResp{Data: data}, nil
 }
 
-// DeleteGroup deletes a group. Its members lose what it granted, from their next certificate on.
+// DeleteGroup deletes a group. Its members' certificates are revoked, and they lose what it granted.
 func (uc *UC) DeleteGroup(ctx context.Context, auth *basedto.Auth, orgID, groupID string) (
 	*orgdto.DeleteGroupResp, error) {
 	err := transaction.Execute(ctx, uc.db, func(tx database.Tx) error {
@@ -124,11 +141,16 @@ func (uc *UC) DeleteGroup(ctx context.Context, auth *basedto.Auth, orgID, groupI
 		if err != nil {
 			return err
 		}
+		// Before the group goes: who is in it is what the rows about to be deleted say.
+		revoked, err := uc.revokeOfGroup(ctx, tx, orgID, groupID)
+		if err != nil {
+			return err
+		}
 		if err = uc.groupRepo.Delete(ctx, tx, orgID, groupID); err != nil {
 			return hperrors.Wrap(err)
 		}
 		return uc.recordGroupChange(ctx, tx, auth, group, auditSectionGroupDelete,
-			auditdetail.New().Set("name", group.Name))
+			auditdetail.New().Set("name", group.Name).Set("certsRevoked", revoked))
 	})
 	if err != nil {
 		return nil, hperrors.Wrap(err)
@@ -136,7 +158,8 @@ func (uc *UC) DeleteGroup(ctx context.Context, auth *basedto.Auth, orgID, groupI
 	return &orgdto.DeleteGroupResp{}, nil
 }
 
-// SetGroupMembers makes these members the group's, and nobody else. Each is a member of the organization, suspended
+// SetGroupMembers makes these members the group's, and nobody else. An admin cannot add themselves to a group that
+// grants accounts they do not have - see noSelfGrant. Each is a member of the organization, suspended
 // ones included; a removed one is not.
 func (uc *UC) SetGroupMembers(ctx context.Context, auth *basedto.Auth, orgID, groupID string,
 	req *orgdto.SetGroupMembersReq) (*orgdto.GroupDataResp, error) {
@@ -158,7 +181,23 @@ func (uc *UC) SetGroupMembers(ctx context.Context, auth *basedto.Auth, orgID, gr
 				return hperrors.NewNotFound("Member")
 			}
 		}
-		if err = uc.groupRepo.SetMembers(ctx, tx, orgID, groupID, userIDs); err != nil {
+		// Who was in it, read before the change: somebody taken out keeps their certificates otherwise, and what the
+		// group granted is in them.
+		were, err := uc.groupRepo.MemberIDsOf(ctx, tx, orgID, groupID)
+		if err != nil {
+			return hperrors.Wrap(err)
+		}
+		err = uc.noSelfGrant(ctx, tx, auth, orgID, func() error {
+			return hperrors.Wrap(uc.groupRepo.SetMembers(ctx, tx, orgID, groupID, userIDs))
+		})
+		if err != nil {
+			return err
+		}
+		reaches := slices.Clone(were)
+		reaches = append(reaches, userIDs...)
+		slices.Sort(reaches)
+		revoked, err := uc.sshCertRepo.RevokeOfUsers(ctx, tx, orgID, slices.Compact(reaches), timeutil.NowUTC())
+		if err != nil {
 			return hperrors.Wrap(err)
 		}
 		members, err := uc.groupRepo.ListMembers(ctx, tx, orgID)
@@ -167,12 +206,23 @@ func (uc *UC) SetGroupMembers(ctx context.Context, auth *basedto.Auth, orgID, gr
 		}
 		data = orgdto.TransformGroup(group, members)
 		return uc.recordGroupChange(ctx, tx, auth, group, auditSectionGroupMembers, auditdetail.New().
-			Set("name", group.Name).Set("userIds", userIDs))
+			Set("name", group.Name).Set("userIds", userIDs).Set("certsRevoked", revoked))
 	})
 	if err != nil {
 		return nil, hperrors.Wrap(err)
 	}
 	return &orgdto.GroupDataResp{Data: data}, nil
+}
+
+// revokeOfGroup refuses the certificates of everybody in the group, for a change to what it grants or to the group
+// itself. What each of them may log in as has changed, and a certificate they hold still says what it did.
+func (uc *UC) revokeOfGroup(ctx context.Context, tx database.Tx, orgID, groupID string) (int64, error) {
+	userIDs, err := uc.groupRepo.MemberIDsOf(ctx, tx, orgID, groupID)
+	if err != nil {
+		return 0, hperrors.Wrap(err)
+	}
+	revoked, err := uc.sshCertRepo.RevokeOfUsers(ctx, tx, orgID, userIDs, timeutil.NowUTC())
+	return revoked, hperrors.Wrap(err)
 }
 
 // lockAsAdmin checks the person is an admin, with the organization locked: two groups made at once cannot both take a

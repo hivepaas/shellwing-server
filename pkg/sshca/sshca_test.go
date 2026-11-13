@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,12 +82,81 @@ func TestSignMakesACertificateSSHTrusts(t *testing.T) {
 	require.NoError(t, checker.CheckCert("deploy", cert), "a server whose clock is a little behind takes it")
 }
 
+func TestSignCarriesOnlyTheExtensionsItWasGiven(t *testing.T) {
+	ca, err := GenerateCA()
+	require.NoError(t, err)
+	key, _ := userKey(t)
+	sign := func(t *testing.T, extensions []string) (*ssh.Certificate, error) {
+		t.Helper()
+		signed, err := Sign(ca.PrivateKey, &UserCert{
+			Key: key, Principals: []string{"deploy"}, Extensions: extensions, TTL: time.Hour, Now: time.Now(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return parsedCert(t, signed.Certificate), nil
+	}
+
+	cert, err := sign(t, DefaultExtensions)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{ExtensionPermitPTY: ""}, cert.Extensions,
+		"the default is a terminal, and nothing that reaches past the server")
+
+	cert, err = sign(t, []string{ExtensionPermitPTY, ExtensionPermitPortForwarding})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{ExtensionPermitPTY: "", ExtensionPermitPortForwarding: ""}, cert.Extensions)
+
+	// None is a setting of its own: it logs in and runs a command, with no terminal.
+	cert, err = sign(t, nil)
+	require.NoError(t, err)
+	assert.Empty(t, cert.Extensions)
+
+	// Still a certificate the library accepts, whatever it is allowed to do.
+	caPublic, _, _, _, err := ssh.ParseAuthorizedKey([]byte(ca.PublicKey)) //nolint:dogsled // only the key
+	require.NoError(t, err)
+	checker := &ssh.CertChecker{IsUserAuthority: func(auth ssh.PublicKey) bool {
+		return string(auth.Marshal()) == string(caPublic.Marshal())
+	}}
+	require.NoError(t, checker.CheckCert("deploy", cert))
+
+	_, err = sign(t, []string{"permit-everything"})
+	require.ErrorIs(t, err, hperrors.ErrSSHExtensionInvalid,
+		"sshd knows no such extension, and would carry it without meaning anything")
+}
+
+func TestValidExtension(t *testing.T) {
+	for _, name := range AllExtensions {
+		assert.True(t, ValidExtension(name), name)
+	}
+	assert.False(t, ValidExtension(""))
+	assert.False(t, ValidExtension("permit-pty "))
+	assert.False(t, ValidExtension("no-touch-required"), "not one this server grants")
+	assert.Subset(t, AllExtensions, DefaultExtensions)
+}
+
 func TestSignRefusesACertificateWithNoPrincipals(t *testing.T) {
 	ca, err := GenerateCA()
 	require.NoError(t, err)
 	key, _ := userKey(t)
 	_, err = Sign(ca.PrivateKey, &UserCert{Key: key, TTL: time.Hour, Now: time.Now()})
 	require.ErrorIs(t, err, hperrors.ErrSSHNoPrincipals, "sshd reads no principals as any account")
+}
+
+func TestSignRefusesMorePrincipalsThanAllowed(t *testing.T) {
+	ca, err := GenerateCA()
+	require.NoError(t, err)
+	key, _ := userKey(t)
+	names := make([]string, 0, MaxPrincipals+1)
+	for i := range MaxPrincipals + 1 {
+		names = append(names, "account"+strconv.Itoa(i))
+	}
+
+	_, err = Sign(ca.PrivateKey, &UserCert{Key: key, Principals: names[:MaxPrincipals], TTL: time.Hour,
+		Now: time.Now()})
+	require.NoError(t, err, "the bound itself is allowed")
+
+	_, err = Sign(ca.PrivateKey, &UserCert{Key: key, Principals: names, TTL: time.Hour, Now: time.Now()})
+	require.ErrorIs(t, err, hperrors.ErrSSHTooManyPrincipals, "a member's own and their groups' together")
 }
 
 func TestParseUserKey(t *testing.T) {

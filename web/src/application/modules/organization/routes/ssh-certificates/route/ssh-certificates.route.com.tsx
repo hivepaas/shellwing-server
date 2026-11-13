@@ -5,7 +5,13 @@ import { cn } from "@lib/utils";
 import { useAdministeredOrg } from "@application/shared/hooks";
 import { PageNoAccess } from "@application/shared/pages";
 
-import { SshAccessSection, SshCaSection, SshCertLifetimeSection } from "../building-blocks";
+import {
+    SshAccessSection,
+    SshCaSection,
+    SshCertExtensionsSection,
+    SshCertLifetimeSection,
+    SshKrlSection,
+} from "../building-blocks";
 
 export function SshCertificatesRoute() {
     const { org, isLoading, error } = useAdministeredOrg();
@@ -41,6 +47,14 @@ export function SshCertificatesRoute() {
             <SshCertLifetimeSection
                 orgId={org.id}
                 certTtlMinutes={org.sshCertTtlMinutes}
+            />
+            <SshCertExtensionsSection
+                orgId={org.id}
+                certExtensions={org.sshCertExtensions}
+            />
+            <SshKrlSection
+                orgId={org.id}
+                tokenCreatedAt={org.sshKrlTokenCreatedAt}
             />
             <SshAccessSection orgId={org.id} />
         </div>

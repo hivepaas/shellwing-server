@@ -28,6 +28,8 @@ type OrgGroupRepo interface {
 
 	// ListMembers returns who is in the organization's groups, by group name then username.
 	ListMembers(ctx context.Context, db database.IDB, orgID string) ([]*entity.OrgGroupMemberUser, error)
+	// MemberIDsOf returns the user ids in one group, sorted. It is who a change to that group reaches.
+	MemberIDsOf(ctx context.Context, db database.IDB, orgID, groupID string) ([]string, error)
 	// SetMembers makes these users the group's members, and nobody else.
 	SetMembers(ctx context.Context, db database.IDB, orgID, groupID string, userIDs []string) error
 	// RemoveFromAll takes a member out of every group of the organization.
@@ -118,6 +120,19 @@ func (repo *orgGroupRepo) ListMembers(ctx context.Context, db database.IDB,
 		return nil, hperrors.Wrap(err)
 	}
 	return members, nil
+}
+
+func (repo *orgGroupRepo) MemberIDsOf(ctx context.Context, db database.IDB, orgID, groupID string) (
+	[]string, error) {
+	var userIDs []string
+	err := db.NewSelect().Model((*entity.OrgGroupMember)(nil)).
+		Column("user_id").
+		Where("org_id = ?", orgID).Where("group_id = ?", groupID).
+		Order("user_id ASC").Scan(ctx, &userIDs)
+	if err != nil {
+		return nil, hperrors.Wrap(err)
+	}
+	return userIDs, nil
 }
 
 func (repo *orgGroupRepo) SetMembers(ctx context.Context, db database.IDB, orgID, groupID string,
