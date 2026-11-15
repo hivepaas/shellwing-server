@@ -69,7 +69,7 @@
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-prettier": "^5.5.7",
     "eslint-plugin-react": "^7.37.5",
-    "i18next": "^23.16.8",
+    "i18next": "^27.1.1",
     "immer": "^11.2.9",
     "input-otp": "^1.5.0",
     "javascript-time-ago": "^2.6.4",
