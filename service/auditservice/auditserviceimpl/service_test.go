@@ -9,7 +9,9 @@ import (
 	"github.com/hivepaas/shellwing-server/base"
 	"github.com/hivepaas/shellwing-server/entity"
 	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/auditsink"
 	"github.com/hivepaas/shellwing-server/pkg/bunex"
+	"github.com/hivepaas/shellwing-server/pkg/logging"
 	"github.com/hivepaas/shellwing-server/repository"
 	"github.com/hivepaas/shellwing-server/service/auditservice"
 )
@@ -30,7 +32,7 @@ func (f *fakeAuditLogRepo) Insert(
 // rather than left to whatever the caller happened to put in the JSON.
 func TestRecordCarriesTheSectionIntoItsOwnColumn(t *testing.T) {
 	repo := &fakeAuditLogRepo{}
-	svc := New(repo)
+	svc := New(repo, auditsink.Nop(), logging.GlobalLogger())
 
 	err := svc.Record(context.Background(), nil, &auditservice.Entry{
 		Type:    base.AuditLogTypeUserUpdate,
@@ -52,7 +54,7 @@ func TestRecordCarriesTheSectionIntoItsOwnColumn(t *testing.T) {
 // string must reach the column as NULL rather than as an indexed empty value.
 func TestRecordLeavesTheSectionEmptyWhenThereIsNone(t *testing.T) {
 	repo := &fakeAuditLogRepo{}
-	svc := New(repo)
+	svc := New(repo, auditsink.Nop(), logging.GlobalLogger())
 
 	err := svc.Record(context.Background(), nil, &auditservice.Entry{
 		Type:   base.AuditLogTypeSecretReveal,

@@ -29,6 +29,7 @@ func TestFxGraphResolves(t *testing.T) {
 		fx.Invoke(InitConfig),
 		fx.Invoke(InitDBConnection),
 		fx.Invoke(InitDataKey),
+		fx.Invoke(InitAuditSink),
 		fx.Invoke(InitCache),
 		fx.Invoke(SystemInstallation),
 		fx.Invoke(DevResetUserPasswords),

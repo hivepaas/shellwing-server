@@ -33,6 +33,11 @@ version migrates. Give it a volume at `/var/lib/shellwing`.
 | `SHW_KMS_AWS_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_SESSION_TOKEN` | Its credential. Leave all three unset to use the instance or service account role, which is better: no long-lived secret in the configuration. |
 | `SHW_SSH_CA_KEY_PROVIDER` | Where a new SSH authority's signing key is made: `local` (the default) or `vault-transit`. See below. |
 | `SHW_SSH_CA_VAULT_KEY_PREFIX` | Names an authority's transit key: this plus the authority's id. `shellwing-ca-` by default. |
+| `SHW_AUDIT_SINK` | Where a copy of each recorded action goes: `none` (the default) or `syslog`. See below. |
+| `SHW_AUDIT_REQUIRED` | `true` by default: an action whose record cannot reach the sink does not happen. |
+| `SHW_AUDIT_SYSLOG_ADDRESS`, `_NETWORK` | The collector's `host:port`, and `tls` (the default) or `tcp`. |
+| `SHW_AUDIT_SYSLOG_APP_NAME`, `_FACILITY`, `_HOSTNAME` | The `APP-NAME`, facility (`local0` by default) and `HOSTNAME` fields. |
+| `SHW_AUDIT_SYSLOG_CA_CERT_FILE`, `_SERVER_NAME` | A PEM to trust instead of the system store, and the name to verify against for an address that is an IP. |
 
 A store that cannot be reached stops the start.
 
@@ -345,6 +350,61 @@ The move happens on the next start, and the log says so. Two things to know abou
 
 `vault-transit` works against OpenBao as well, and is the one to choose for a self-hosted install. Of the three, it is
 also the only one whose keys can sign Ed25519, which matters if signing itself moves to the service later.
+
+## Recording what happened
+
+Every action worth answering for is recorded: who did it, from where, with which session, and what it touched.
+Issuing a certificate is one of them, with the member, the device, the fingerprint, the accounts it names and when it
+expires.
+
+Those records are rows in this server's database, and that is the problem. They are evidence about this server, kept
+by this server - whoever reaches the database can edit them or delete them, and the retention sweep deletes them by
+design. On their own they are an operations log rather than something to show anybody.
+
+`SHW_AUDIT_SINK=syslog` sends a copy of each one to a collector as well, as RFC 5424 with the record as JSON and the
+kind of action as the `MSGID`:
+
+```
+SHW_AUDIT_SINK=syslog
+SHW_AUDIT_SYSLOG_ADDRESS=127.0.0.1:601
+SHW_AUDIT_SYSLOG_NETWORK=tcp
+```
+
+A line already sent cannot be taken back. That covers the ordinary case - somebody who gets access later, or an
+insider tidying up afterwards - and not somebody who blocks the collector first and then acts. Which is why:
+
+**An action whose record cannot be sent does not happen.** `SHW_AUDIT_REQUIRED` is `true` by default, and a failure
+to reach the collector refuses the action with `ERR_AUDIT_SINK_UNAVAILABLE`. That is the stance the records already
+take about the database: a recordable action carried out unrecorded leaves exactly the gap the record exists to close.
+Set it to `false` to prefer the server working over the records being complete - the record is still in the database,
+and the log says which copy was lost.
+
+**Point it at a collector on this machine.** This server does not queue. It opens one connection, writes one record at
+a time, and reconnects when the collector restarts; it does not hold records on disk, because holding audit records on
+the machine being audited is what the sink is for avoiding. The collector is what has the disk queue, the retries and
+the credentials for the far end - and with `SHW_AUDIT_REQUIRED=true`, a collector on this machine is also what keeps a
+network between here and the SIEM from being able to stop anybody issuing a certificate.
+
+An rsyslog ruleset that takes the records and forwards them, buffering to disk when the far end is away:
+
+```
+# /etc/rsyslog.d/10-shellwing-audit.conf
+module(load="imtcp")
+input(type="imtcp" port="601" address="127.0.0.1" ruleset="shellwing-audit")
+ruleset(name="shellwing-audit") {
+    action(type="omfwd" target="siem.example.com" port="6514" protocol="tcp"
+           StreamDriver="gtls" StreamDriverMode="1" StreamDriverAuthMode="x509/name"
+           queue.type="LinkedList" queue.filename="shellwing-audit"
+           queue.maxDiskSpace="1g" action.resumeRetryCount="-1")
+}
+```
+
+Reach a collector that is not on this machine over `tls`, which is the default for exactly that reason: `tcp` carries
+the records, which name people and what they did, in the clear. UDP is not offered at all - it drops records without
+saying so, and a sink that silently loses what it was given is worse than none, because it would be believed.
+
+A record too long for a collector to take is replaced by one saying so rather than cut off, because a record
+truncated in the middle is invalid JSON and a reader is likely to drop it whole.
 
 ## Backups
 

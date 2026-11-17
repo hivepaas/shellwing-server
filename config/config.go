@@ -56,6 +56,9 @@ var (
 	// cannot be made. It stops the start rather than being found by the first
 	// admin who tries to make one.
 	ErrSSHCAKeyProviderUnknown = errors.New("SSH CA key provider is not one this server knows")
+	// ErrAuditSinkUnknown is somewhere audit records cannot be sent. It stops the start: carrying on with no sink
+	// would keep the records only where whoever is being recorded can delete them.
+	ErrAuditSinkUnknown = errors.New("audit sink is not one this server knows")
 )
 
 const (
@@ -132,6 +135,7 @@ type Config struct {
 	Sync       Sync       `toml:"sync"`
 	KMS        KMS        `toml:"kms"`
 	SSHCA      SSHCA      `toml:"ssh_ca"`
+	Audit      Audit      `toml:"audit"`
 
 	DevMode DevMode `toml:"dev_mode"`
 }
@@ -253,6 +257,9 @@ func loadConfig(configFile string) (*Config, error) {
 		return config, err
 	}
 	if err := config.SSHCA.validate(); err != nil {
+		return config, err
+	}
+	if err := config.Audit.validate(); err != nil {
 		return config, err
 	}
 
