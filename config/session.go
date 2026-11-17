@@ -8,9 +8,21 @@ type Session struct {
 	DeviceTrustedPeriod    time.Duration `toml:"device_trusted_period" env:"SHW_SESSION_DEVICE_TRUSTED_PERIOD" default:"48h"` //nolint:lll
 
 	// DeviceAccessTokenExp and DeviceRefreshTokenExp are an app's: a short token it renews by itself, and how long it
-	// may go unused before its person has to sign in again.
-	DeviceAccessTokenExp  time.Duration `toml:"device_access_token_exp" env:"SHW_SESSION_DEVICE_ACCESS_TOKEN_EXP" default:"15m"`     //nolint:lll
-	DeviceRefreshTokenExp time.Duration `toml:"device_refresh_token_exp" env:"SHW_SESSION_DEVICE_REFRESH_TOKEN_EXP" default:"2160h"` //nolint:lll
+	// may go **unused** before its person has to sign in again. The second one starts over on every renewal, and an
+	// app renews every few minutes, so it is a limit on a device left in a drawer and not on one that is in use.
+	DeviceAccessTokenExp  time.Duration `toml:"device_access_token_exp" env:"SHW_SESSION_DEVICE_ACCESS_TOKEN_EXP" default:"15m"`    //nolint:lll
+	DeviceRefreshTokenExp time.Duration `toml:"device_refresh_token_exp" env:"SHW_SESSION_DEVICE_REFRESH_TOKEN_EXP" default:"720h"` //nolint:lll
+
+	// DeviceSessionMaxAge is how long a device may be signed in at all, counted from when it was signed in and not
+	// moved by using it. After it, the person signs in again however busy the device has been.
+	//
+	// It is the only limit that arrives without somebody acting. Revoking a device ends it at once and disabling its
+	// person ends it within DeviceAccessTokenExp, but both need the loss to have been noticed; this is what bounds a
+	// device nobody has reported. The certificates an app can ask for last two hours, which is beside the point if
+	// the app asking can go on asking for ever.
+	//
+	// Zero is no limit, which is what this was before it existed.
+	DeviceSessionMaxAge time.Duration `toml:"device_session_max_age" env:"SHW_SESSION_DEVICE_SESSION_MAX_AGE" default:"2160h"` //nolint:lll
 
 	JWTSecret       string        `toml:"jwt_secret" env:"SHW_SESSION_JWT_SECRET"`
 	AccessTokenExp  time.Duration `toml:"access_token_exp" env:"SHW_SESSION_ACCESS_TOKEN_EXP" default:"8h"`

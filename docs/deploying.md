@@ -17,6 +17,8 @@ version migrates. Give it a volume at `/var/lib/shellwing`.
 | `SHW_ROOT_DOMAIN`, `SHW_APP_DOMAIN` | Where the server is reached. |
 | `SHW_APP_SECRET` | 64 hex characters. Every stored secret is encrypted with it: back it up elsewhere. |
 | `SHW_SESSION_JWT_SECRET` | 64 hex characters. |
+| `SHW_SESSION_DEVICE_REFRESH_TOKEN_EXP` | How long an app may go **unused** before its person signs in again. 30 days; it starts over on each renewal. |
+| `SHW_SESSION_DEVICE_SESSION_MAX_AGE` | How long an app may be signed in at all, from when it was. 90 days, and `0` for no limit. |
 | `SHW_DB_HOST`, `SHW_DB_PORT`, `SHW_DB_USER`, `SHW_DB_PASSWORD`, `SHW_DB_DB_NAME` | PostgreSQL. The password in hex: `sql-migrate` puts it in a URL. |
 | `SHW_CACHE_URL` | Redis, as `redis://default:<password>@<host>:6379/0`. |
 | `SHW_HTTP_SERVER_TRUSTED_PROXIES` | The proxy in front of the server. Rate limits count by the client's address, which only a trusted proxy gives. |
@@ -58,11 +60,12 @@ get no new ones. An organization has none of this until an admin sets it up, in 
 in the web app, or with the API below.
 
 1. An admin makes the certificate authority: `POST /api/orgs/{org}/ssh/cas`. The organization's ID is in `GET /api/orgs`.
-2. Each target server trusts its public key, with the `publicKey` of `GET /api/orgs/{org}/ssh/cas`:
+2. Each target server trusts the organization's authorities, which it fetches rather than being given once - see
+   *Hardening the target servers* below, and *Rotating an authority* for why it matters:
 
    ```
    # /etc/ssh/sshd_config
-   TrustedUserCAKeys /etc/ssh/shellwing_ca.pub
+   TrustedUserCAKeys /etc/ssh/shellwing_ca_keys.pub
    ```
 
 3. An admin grants each person the accounts they may log in as:
@@ -75,6 +78,17 @@ A certificate lasts 2 hours unless `PUT /api/orgs/{org}/ssh/settings` says other
 signed is in the audit log (`ssh-cert-issue`), and `sshd` logs the person and device of each login. One person may be
 signed 60 an hour, and one of their devices 30: ordinary use is a handful a day, and the limit bounds what a stolen
 token can collect.
+
+**How long an app may go on asking.** A certificate's two hours bound how long one is good for, not how long the
+thing that asks for them is trusted. An app holds a device session: a 15-minute token it renews by itself, a renewal
+window that starts over every time (`SHW_SESSION_DEVICE_REFRESH_TOKEN_EXP`, 30 days, so it is a limit on a device left
+in a drawer), and an age it cannot renew past (`SHW_SESSION_DEVICE_SESSION_MAX_AGE`, 90 days from signing in). After
+the age, the person signs in again however busy the device has been.
+
+The age is the only one of the three that arrives without somebody acting. Revoking a device ends its session at once
+and revokes the certificates it holds; disabling its person stops the renewals within 15 minutes. Both need the loss
+to have been noticed, and the age is what bounds a device nobody has reported. Set it to `0` for no limit, which is
+what there was before it existed.
 
 **Nobody grants themselves.** An admin may grant anybody else, and may take accounts away from themselves, but a change
 that would give them an account they did not already have is refused - whether through their own accounts, a group's,
