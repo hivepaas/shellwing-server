@@ -149,7 +149,7 @@ func (uc *UC) RefreshDevice(ctx context.Context,
 	if err != nil {
 		return nil, hperrors.Wrap(err)
 	}
-	if device == nil || !device.CanRefresh(timeNow) {
+	if device == nil || !device.CanRefresh(timeNow, config.Current().Session.DeviceSessionMaxAge) {
 		return nil, hperrors.Wrap(hperrors.ErrDeviceTokenInvalid)
 	}
 	user, err := uc.userRepo.GetByID(ctx, uc.db, device.UserID)
