@@ -2,14 +2,18 @@ package auditserviceimpl
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/tiendc/gofn"
 
 	"github.com/hivepaas/shellwing-server/base"
 	"github.com/hivepaas/shellwing-server/basedto"
+	"github.com/hivepaas/shellwing-server/config"
 	"github.com/hivepaas/shellwing-server/entity"
 	"github.com/hivepaas/shellwing-server/hperrors"
 	"github.com/hivepaas/shellwing-server/infra/database"
+	"github.com/hivepaas/shellwing-server/pkg/auditsink"
+	"github.com/hivepaas/shellwing-server/pkg/logging"
 	"github.com/hivepaas/shellwing-server/pkg/reqinfo"
 	"github.com/hivepaas/shellwing-server/pkg/timeutil"
 	"github.com/hivepaas/shellwing-server/pkg/ulid"
@@ -19,13 +23,19 @@ import (
 
 type service struct {
 	auditLogRepo repository.AuditLogRepo
+	sink         auditsink.Sink
+	logger       logging.Logger
 }
 
 func New(
 	auditLogRepo repository.AuditLogRepo,
+	sink auditsink.Sink,
+	logger logging.Logger,
 ) auditservice.Service {
 	return &service{
 		auditLogRepo: auditLogRepo,
+		sink:         sink,
+		logger:       logger,
 	}
 }
 
@@ -55,7 +65,34 @@ func (s *service) Record(ctx context.Context, db database.IDB, entry *auditservi
 	if err := s.auditLogRepo.Insert(ctx, db, auditLog); err != nil {
 		return hperrors.Wrap(err)
 	}
-	return nil
+	return s.send(ctx, auditLog)
+}
+
+// send delivers a copy of the record to the sink, if there is one.
+//
+// After the database and before the caller's transaction commits, which is the only order with a defensible failure.
+// A sink holding a record of something that was then rolled back is a false entry; an action that happened with no
+// record anywhere is the thing records exist to prevent. Having neither would need the sink inside the transaction,
+// and syslog has nothing to commit with - so the false entry is the side to err on, and it is rare: a rollback after
+// this point is a failure of something that had already succeeded.
+func (s *service) send(ctx context.Context, auditLog *entity.AuditLog) error {
+	payload, err := json.Marshal(auditLog)
+	if err != nil {
+		return hperrors.Wrap(err)
+	}
+	if err = s.sink.Send(ctx, string(auditLog.Type), payload); err == nil {
+		return nil
+	}
+
+	if cfg := config.Current(); cfg != nil && !cfg.Audit.Required {
+		// Said loudly rather than swallowed. The operator asked for the server to keep working, not for the loss to
+		// be invisible, and this line is the only trace that record ever existed outside the database.
+		s.logger.Errorf("audit record %s (%s) did not reach the %s sink, and is only in the database: %v",
+			auditLog.ID, auditLog.Type, s.sink.Name(), err)
+		return nil
+	}
+	return hperrors.Wrap(hperrors.ErrAuditSinkUnavailable).WithCause(err).
+		WithParam("Name", s.sink.Name())
 }
 
 // applyActor copies who acted. Every step is guarded because an audit write must

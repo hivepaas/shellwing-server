@@ -137,6 +137,7 @@ var Provides = []any{
 	useruc.New,
 
 	// Service
+	NewAuditSink,
 	auditserviceimpl.New,
 	datakeyserviceimpl.New,
 	emailserviceimpl.New,

@@ -20,6 +20,7 @@ ERR_SSH_TOO_MANY_PRINCIPALS = "This member has too many accounts to log in as. A
 ERR_SSH_SELF_GRANT = "You cannot grant yourself the account \"{{.Name}}\". Another admin of this organization can do it."
 ERR_SSH_KRL_TOKEN_INVALID = "This token does not fetch this organization's revocation list. An admin can make a new one in Administration > SSH Certificates."
 ERR_SSH_EXTENSION_INVALID = "\"{{.Name}}\" is not something a certificate can be allowed to do."
+ERR_AUDIT_SINK_UNAVAILABLE = "This did not happen: the record of it could not be sent to {{.Name}}, and an action that cannot be recorded is not carried out. Try again once that is reachable."
 ERR_SSH_CA_NOT_PUBLISHED = "That certificate authority is {{.Name}}, and only a published one can start signing or be retired."
 ERR_SSH_CA_TOO_MANY_TRUSTED = "This organization already has {{.Name}} certificate authorities its servers trust. Retire one before publishing another."
 ERR_SSH_CA_KEY_UNREACHABLE = "The certificate authority's signing key is held by {{.Name}}, which cannot be reached just now. Try again, or ask an administrator to check it."

@@ -63,6 +63,14 @@ var (
 	ErrSSHCAKeyUnreachable = NewErr(ErrServiceUnavailable, "ERR_SSH_CA_KEY_UNREACHABLE")
 )
 
+// Errors for recording what happened.
+var (
+	// ErrAuditSinkUnavailable is an action whose record could not reach the sink it has to reach. Its param Name is
+	// which sink. The action did not happen, so the answer is to fix the sink and ask again - or to decide that the
+	// server staying up matters more, which is config.Audit.Required.
+	ErrAuditSinkUnavailable = NewErr(ErrServiceUnavailable, "ERR_AUDIT_SINK_UNAVAILABLE")
+)
+
 // Errors for organizations' members.
 var (
 	// ErrOrgLastOwner refuses a change that would leave the organization with no active owner: another is made first.
